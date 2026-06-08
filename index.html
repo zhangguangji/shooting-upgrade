@@ -33,16 +33,19 @@ canvas { display:block; position:absolute; top:0; left:0; }
 #msgBox { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none; z-index:15; color:#ffd700; font-size:24px; font-weight:bold; text-shadow:0 0 15px rgba(255,215,0,0.6); opacity:0; transition:opacity 0.3s; }
 
 #loginScreen { position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(5,5,15,0.95); z-index:100; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#fff; }
-#loginScreen h1 { color:#4fc3f7; font-size:28px; margin-bottom:4px; }
-#loginScreen .sub { color:#888; font-size:13px; margin-bottom:24px; }
-#loginScreen input { width:260px; padding:12px 16px; margin:6px 0; border-radius:8px; border:2px solid #333; background:rgba(255,255,255,0.05); color:#fff; font-size:15px; outline:none; transition:border 0.2s; }
+#loginScreen h1 { color:#4fc3f7; font-size:30px; margin-bottom:4px; }
+#loginScreen .sub { color:#888; font-size:13px; margin-bottom:20px; }
+#loginScreen input { width:260px; padding:14px 16px; margin:8px 0; border-radius:10px; border:2px solid #333; background:rgba(255,255,255,0.08); color:#fff; font-size:16px; outline:none; text-align:center; transition:border 0.2s; }
 #loginScreen input:focus { border-color:#4fc3f7; }
-#loginScreen .btn-row { display:flex; gap:8px; margin-top:12px; }
-#loginScreen button { padding:12px 32px; border-radius:8px; border:none; font-size:15px; cursor:pointer; font-weight:bold; transition:all 0.2s; }
-#loginScreen .btn-primary { background:#4fc3f7; color:#000; }
-#loginScreen .btn-secondary { background:rgba(255,255,255,0.1); color:#fff; }
-#loginScreen .error { color:#ff4444; font-size:13px; margin-top:8px; min-height:20px; }
-#loginScreen .profile-hint { color:#666; font-size:12px; margin-top:16px; text-align:center; line-height:1.6; }
+#loginScreen .btn-row { display:flex; gap:8px; margin-top:10px; }
+#loginScreen button { padding:14px 40px; border-radius:10px; border:none; font-size:16px; cursor:pointer; font-weight:bold; transition:all 0.2s; }
+#loginScreen .btn-primary { background:#4fc3f7; color:#000; font-size:18px; }
+#loginScreen .btn-primary:hover { background:#81d4fa; }
+#loginScreen .error { color:#ff4444; font-size:13px; margin-top:4px; min-height:20px; }
+#loginScreen .player-list { margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:300px; }
+#loginScreen .player-tag { padding:6px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.2); color:#aaa; font-size:13px; cursor:pointer; transition:all 0.2s; background:rgba(255,255,255,0.05); }
+#loginScreen .player-tag:hover { border-color:#4fc3f7; color:#4fc3f7; background:rgba(79,195,247,0.1); }
+#loginScreen .hint { color:#666; font-size:12px; margin-top:12px; }
 
 #saveIndicator { position:absolute; top:50px; right:12px; color:rgba(255,255,255,0.4); font-size:11px; pointer-events:none; z-index:10; opacity:0; transition:opacity 0.5s; }
 #logoutBtn { position:absolute; top:8px; right:8px; color:rgba(255,255,255,0.3); font-size:11px; pointer-events:auto; z-index:12; cursor:pointer; background:rgba(0,0,0,0.4); padding:2px 8px; border-radius:4px; border:none; }
@@ -59,15 +62,12 @@ canvas { display:block; position:absolute; top:0; left:0; }
 
 <div id="loginScreen">
   <h1>🔫 武器大师</h1>
-  <div class="sub">射击升级 · 登录存档</div>
-  <input type="text" id="loginUser" placeholder="用户名" maxlength="20" autocomplete="off">
-  <input type="password" id="loginPass" placeholder="密码" maxlength="30">
+  <div class="sub">射击升级 · 即开即玩</div>
+  <input type="text" id="loginUser" placeholder="输入你的昵称" maxlength="12" autocomplete="off">
   <div class="error" id="loginError"></div>
-  <div class="btn-row">
-    <button class="btn-primary" onclick="doLogin()">登录</button>
-    <button class="btn-secondary" onclick="doRegister()">注册</button>
-  </div>
-  <div class="profile-hint">注册后你的进度会自动保存<br>换设备也能用同一账号登录</div>
+  <button class="btn-primary" onclick="startPlay()">⚡ 开始游戏</button>
+  <div class="player-list" id="playerList"></div>
+  <div class="hint">输入昵称即可开始，进度自动保存</div>
 </div>
 
 <div id="gameOver">
@@ -80,57 +80,48 @@ canvas { display:block; position:absolute; top:0; left:0; }
 </div>
 
 <script>
-// ==================== AUTH SYSTEM ====================
+// ==================== AUTH SYSTEM (simple nickname) ====================
 let currentUser = null;
-const AUTH_PREFIX = 'shooting_user_';
 
-function hashPass(pass) {
-  // Simple hash for local storage (not for real security, just obfuscation)
-  let h = 0;
-  for(let i=0;i<pass.length;i++){ h = ((h<<5)-h)+pass.charCodeAt(i); h|=0; }
-  return 'h'+Math.abs(h).toString(36);
+function getPlayerList() {
+  try { return JSON.parse(localStorage.getItem('shooting_players')||'[]'); } catch(e) { return []; }
+}
+function savePlayerList(list) {
+  localStorage.setItem('shooting_players', JSON.stringify(list));
 }
 
-function getUsers() {
-  try { return JSON.parse(localStorage.getItem('shooting_users')||'{}'); } catch(e) { return {}; }
+function renderPlayerList() {
+  const players = getPlayerList();
+  const el = document.getElementById('playerList');
+  if(players.length===0){ el.innerHTML=''; return; }
+  el.innerHTML = players.map(p => 
+    `<div class="player-tag" onclick="selectPlayer('${p}')">👤 ${p}</div>`
+  ).join('');
 }
 
-function saveUsers(users) {
-  localStorage.setItem('shooting_users', JSON.stringify(users));
+function selectPlayer(name) {
+  document.getElementById('loginUser').value = name;
+  startPlay();
 }
 
-function doRegister() {
-  const user = document.getElementById('loginUser').value.trim();
-  const pass = document.getElementById('loginPass').value;
+function startPlay() {
+  const name = document.getElementById('loginUser').value.trim();
   const errEl = document.getElementById('loginError');
-  if(!user || user.length<2){ errEl.textContent='用户名至少2个字符'; return; }
-  if(!pass || pass.length<4){ errEl.textContent='密码至少4个字符'; return; }
-  const users = getUsers();
-  if(users[user]){ errEl.textContent='用户名已存在'; return; }
-  users[user] = { pass: hashPass(pass), created: Date.now() };
-  saveUsers(users);
-  errEl.textContent = '';
-  loginSuccess(user);
-}
-
-function doLogin() {
-  const user = document.getElementById('loginUser').value.trim();
-  const pass = document.getElementById('loginPass').value;
-  const errEl = document.getElementById('loginError');
-  if(!user || !pass){ errEl.textContent='请输入用户名和密码'; return; }
-  const users = getUsers();
-  if(!users[user]){ errEl.textContent='用户不存在，请先注册'; return; }
-  if(users[user].pass !== hashPass(pass)){ errEl.textContent='密码错误'; return; }
-  errEl.textContent = '';
-  loginSuccess(user);
-}
-
-function loginSuccess(user) {
-  currentUser = user;
-  localStorage.setItem('shooting_last_user', user);
+  if(!name || name.length<1){ errEl.textContent='请输入昵称'; return; }
+  if(name.length>12){ errEl.textContent='昵称最多12个字符'; return; }
+  
+  // Add to player list if new
+  const players = getPlayerList();
+  if(!players.includes(name)){
+    players.push(name);
+    savePlayerList(players);
+  }
+  
+  currentUser = name;
+  localStorage.setItem('shooting_last_user', name);
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('logoutBtn').style.display = 'block';
-  showMsg('👋 欢迎，'+user+'！');
+  showMsg('👋 你好，'+name+'！');
   loadOrStart();
 }
 
@@ -148,24 +139,20 @@ function resize() { W=innerWidth; H=innerHeight; canvas.width=W; canvas.height=H
 resize();
 window.addEventListener('resize', resize);
 
-// Try auto-login (moved AFTER element initialization)
+// Try auto-login
 (function(){
   const lastUser = localStorage.getItem('shooting_last_user');
   if(lastUser){
-    const users = getUsers();
-    if(users[lastUser]){
-      loginSuccess(lastUser);
-      return;
-    }
+    currentUser = lastUser;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('logoutBtn').style.display = 'block';
+    loadOrStart();
+    return;
   }
-  // Show login screen
   document.getElementById('loginScreen').style.display = 'flex';
-  // Press Enter to login
-  document.getElementById('loginPass').addEventListener('keydown', e => {
-    if(e.key==='Enter') doLogin();
-  });
+  renderPlayerList();
   document.getElementById('loginUser').addEventListener('keydown', e => {
-    if(e.key==='Enter') document.getElementById('loginPass').focus();
+    if(e.key==='Enter') startPlay();
   });
 })();
 
@@ -421,7 +408,7 @@ function showMsg(text){ msgBox.textContent=text;msgBox.style.opacity='1';setTime
 function flashSave(){ saveInd.style.opacity='1';setTimeout(()=>{saveInd.style.opacity='0';},1500); }
 
 // ==================== SAVE SYSTEM ====================
-function getSaveKey(){ return currentUser ? AUTH_PREFIX+currentUser : null; }
+function getSaveKey(){ return currentUser ? 'shooting_save_'+currentUser : null; }
 
 function saveGame(){
   if(!currentUser) return;
