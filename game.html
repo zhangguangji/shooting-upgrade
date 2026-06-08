@@ -139,23 +139,6 @@ function resize() { W=innerWidth; H=innerHeight; canvas.width=W; canvas.height=H
 resize();
 window.addEventListener('resize', resize);
 
-// Try auto-login
-(function(){
-  const lastUser = localStorage.getItem('shooting_last_user');
-  if(lastUser){
-    currentUser = lastUser;
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('logoutBtn').style.display = 'block';
-    loadOrStart();
-    return;
-  }
-  document.getElementById('loginScreen').style.display = 'flex';
-  renderPlayerList();
-  document.getElementById('loginUser').addEventListener('keydown', e => {
-    if(e.key==='Enter') startPlay();
-  });
-})();
-
 // ==================== INPUT ====================
 const keys = {};
 const mouse = { x: W/2, y: H/2, down: false };
@@ -843,6 +826,23 @@ function draw(){
 }
 
 function gameLoop(ts){ if(!lastTime)lastTime=ts;const dt=(ts-lastTime)/1000;lastTime=ts;update(dt);draw();requestAnimationFrame(gameLoop); }
+
+// ==================== INIT (runs last, after all declarations) ====================
+(function(){
+  const lastUser = localStorage.getItem('shooting_last_user');
+  if(lastUser){
+    currentUser = lastUser;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('logoutBtn').style.display = 'block';
+    loadOrStart();
+    return;
+  }
+  document.getElementById('loginScreen').style.display = 'flex';
+  renderPlayerList();
+  document.getElementById('loginUser').addEventListener('keydown', e => {
+    if(e.key==='Enter') startPlay();
+  });
+})();
 </script>
 </body>
 </html>
