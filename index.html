@@ -134,7 +134,21 @@ function loginSuccess(user) {
   loadOrStart();
 }
 
-// Try auto-login
+// ==================== CANVAS ====================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const topBar = document.getElementById('topBar');
+const bottomBar = document.getElementById('bottomBar');
+const msgBox = document.getElementById('msgBox');
+const goDiv = document.getElementById('gameOver');
+const saveInd = document.getElementById('saveIndicator');
+let W, H;
+
+function resize() { W=innerWidth; H=innerHeight; canvas.width=W; canvas.height=H; }
+resize();
+window.addEventListener('resize', resize);
+
+// Try auto-login (moved AFTER element initialization)
 (function(){
   const lastUser = localStorage.getItem('shooting_last_user');
   if(lastUser){
@@ -154,20 +168,6 @@ function loginSuccess(user) {
     if(e.key==='Enter') document.getElementById('loginPass').focus();
   });
 })();
-
-// ==================== CANVAS ====================
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-const topBar = document.getElementById('topBar');
-const bottomBar = document.getElementById('bottomBar');
-const msgBox = document.getElementById('msgBox');
-const goDiv = document.getElementById('gameOver');
-const saveInd = document.getElementById('saveIndicator');
-let W, H;
-
-function resize() { W=innerWidth; H=innerHeight; canvas.width=W; canvas.height=H; }
-resize();
-window.addEventListener('resize', resize);
 
 // ==================== INPUT ====================
 const keys = {};
