@@ -420,7 +420,7 @@ function refreshStats() {
 let gold=0, kills=0, wave=1, totalGold=0, gameOver=false;
 let enemiesRemaining=0, waveTotal=0, spawnTimer=0, spawnInterval=1.2;
 let bullets=[], enemyBullets=[], enemies=[], coins=[], particles=[], floatingTexts=[], explosions=[];
-let lastTime=0, shakeAmount=0, statsPanelOpen=false;
+let lastTime=0, shakeAmount=0, statsPanelOpen=false, saveTimer=0;
 
 function spawnEnemy() {
   let type='normal';
@@ -458,6 +458,8 @@ function takeDamage(dmg) {
 
 function endGame() {
   gameOver=true;
+  // Clear save on death
+  try { localStorage.removeItem('shooting_save'); } catch(e) {}
   document.getElementById('goKills').textContent='🏆 击杀: '+kills;
   document.getElementById('goGold').textContent='💰 累计金币: '+totalGold;
   document.getElementById('goWave').textContent='🌊 存活波数: '+wave;
@@ -470,6 +472,40 @@ function showMsg(text) {
   setTimeout(()=>{ msgBox.style.opacity='0'; },1500);
 }
 
+// ==================== SAVE / LOAD ====================
+function saveGame() {
+  const save = {
+    weaponIdx: player.weaponIdx,
+    stats: {...player.stats},
+    gold, kills, wave, totalGold,
+    time: Date.now()
+  };
+  try { localStorage.setItem('shooting_save', JSON.stringify(save)); } catch(e) {}
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem('shooting_save');
+    if(!raw) return false;
+    const save = JSON.parse(raw);
+    player.weaponIdx = save.weaponIdx||0;
+    player.stats = {...player.stats, ...save.stats};
+    gold = save.gold||0;
+    kills = save.kills||0;
+    wave = save.wave||1;
+    totalGold = save.totalGold||0;
+    refreshStats();
+    player.hp = player.maxHp;
+    renderBottomBar();
+    updateUI();
+    return true;
+  } catch(e) { return false; }
+}
+
+function hasSave() {
+  try { return !!localStorage.getItem('shooting_save'); } catch(e) { return false; }
+}
+
 // ==================== UPGRADE ====================
 function buyWeapon(idx) {
   const w=WEAPONS[idx];
@@ -479,6 +515,7 @@ function buyWeapon(idx) {
   player.weaponIdx=idx;
   renderBottomBar();
   updateUI();
+  saveGame();
   showMsg('🔫 升级为 '+w.name+'！');
 }
 
@@ -493,9 +530,13 @@ function buyStat(stat) {
   refreshStats();
   renderBottomBar();
   updateUI();
+  saveGame();
   const names={hp:'生命上限',speed:'移动速度',magnet:'磁铁范围',regen:'生命回复'};
   showMsg('⬆ '+names[stat]+' Lv.'+player.stats[stat]);
 }
+
+// Helper: run fn and stop propagation for mobile
+function doUpgrade(fn) { return function(e){ e.stopPropagation(); e.preventDefault(); fn(); return false; }; }
 
 function renderBottomBar() {
   let html='';
@@ -509,7 +550,7 @@ function renderBottomBar() {
     if(owned) { cls+=' owned'; costText='已装备'; }
     else if(locked) { costText='🔒'; }
     else { costText='💰'+w[i].cost; if(gold>=w[i].cost) cls+=' affordable'; }
-    html+=`<div class="${cls}" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="buyWeapon(${i})" title="${w[i].desc}">
+    html+=`<div class="${cls}" data-action="buyWeapon" data-idx="${i}" title="${w[i].desc}">
       <span class="icon">${w[i].icon}</span>
       <span class="name">${w[i].name}</span>
       <span class="cost">${costText}</span>
@@ -522,18 +563,35 @@ function renderBottomBar() {
     if(lv>=max) continue;
     const cost=player.statsCost[statKeys.indexOf(s)][lv];
     const canBuy=gold>=cost;
-    html+=`<div class="upgrade-btn${canBuy?' affordable':''}" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="buyStat('${s}')">
+    html+=`<div class="upgrade-btn${canBuy?' affordable':''}" data-action="buyStat" data-stat="${s}">
       <span class="icon">${statIcons[s]}</span>
       <span class="name">Lv${lv+1}</span>
       <span class="cost">💰${cost}</span>
     </div>`;
   }
-  html+=`<div class="upgrade-btn affordable" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="toggleStatsPanel()" style="background:rgba(79,195,247,0.15);border-color:#4fc3f7;color:#4fc3f7;">
+  html+=`<div class="upgrade-btn affordable" data-action="toggleStats" style="background:rgba(79,195,247,0.15);border-color:#4fc3f7;color:#4fc3f7;">
     <span class="icon">📋</span><span class="name">更多</span><span class="cost">按U</span></div>`;
   bottomBar.innerHTML=html;
 }
 
 function toggleStatsPanel() { statsPanelOpen=!statsPanelOpen; updateUI(); }
+
+// Event delegation for upgrade buttons (works on both click & touch)
+bottomBar.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  const action = btn.dataset.action;
+  if(action==='buyWeapon') buyWeapon(parseInt(btn.dataset.idx));
+  else if(action==='buyStat') buyStat(btn.dataset.stat);
+  else if(action==='toggleStats') toggleStatsPanel();
+});
+// Also handle touch for stats panel buttons (dynamic content)
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if(!btn || btn.closest('#bottomBar')) return; // already handled
+  const action = btn.dataset.action;
+  if(action==='buyStat') buyStat(btn.dataset.stat);
+});
 
 function updateUI() {
   const w=getWeapon();
@@ -553,7 +611,7 @@ function updateUI() {
         const vals={hp:player.maxHp,speed:player.speed,magnet:player.magnetRange,regen:getStatValue('regen')};
         const cost=lv<max?player.statsCost[['hp','speed','magnet','regen'].indexOf(s)][lv]:0;
         const canBuy=gold>=cost&&lv<max;
-        return `<div class="upgrade-btn${lv>=max?' owned':canBuy?' affordable':''}" ontouchstart="event.stopPropagation()" onclick="buyStat('${s}')" style="pointer-events:auto;"><span>${names[s]}</span><br><span style="font-size:10px">Lv${lv}/${max}=${vals[s]}</span><br><span style="font-size:10px">${lv>=max?'MAX':'💰'+cost}</span></div>`;
+        return `<div class="upgrade-btn${lv>=max?' owned':canBuy?' affordable':''}" data-action="buyStat" data-stat="${s}" style="pointer-events:auto;"><span>${names[s]}</span><br><span style="font-size:10px">Lv${lv}/${max}=${vals[s]}</span><br><span style="font-size:10px">${lv>=max?'MAX':'💰'+cost}</span></div>`;
       }).join('')}
       </div>`;
   }
@@ -569,6 +627,8 @@ function startWave() {
 }
 
 function restart() {
+  // Clear save
+  try { localStorage.removeItem('shooting_save'); } catch(e) {}
   player.x=W/2; player.y=H/2;
   player.weaponIdx=0;
   player.stats={hp:0,speed:0,magnet:0,regen:0};
@@ -738,6 +798,10 @@ function update(dt) {
   shakeAmount*=0.88;
   if(shakeAmount<0.05) shakeAmount=0;
 
+  // Auto-save every 5 seconds
+  saveTimer-=dt;
+  if(saveTimer<=0){ saveTimer=5; saveGame(); }
+
   updateUI();
   renderBottomBar();
 }
@@ -877,7 +941,11 @@ function gameLoop(ts) {
 
 // Init
 refreshStats();
-startWave();
+if(loadGame()) {
+  startWave();
+} else {
+  startWave();
+}
 renderBottomBar();
 updateUI();
 requestAnimationFrame(gameLoop);
