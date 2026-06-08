@@ -2,11 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>射击升级 - 武器大师</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#0a0a12; overflow:hidden; font-family:'PingFang SC','Microsoft YaHei',sans-serif; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
+body { background:#0a0a12; overflow:hidden; font-family:'PingFang SC','Microsoft YaHei',sans-serif; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; touch-action:none; }
 canvas { display:block; position:absolute; top:0; left:0; }
 
 #topBar {
@@ -19,23 +19,23 @@ canvas { display:block; position:absolute; top:0; left:0; }
 
 #bottomBar {
   position:absolute; bottom:0; left:0; right:0;
-  display:flex; gap:6px; padding:8px;
+  display:flex; gap:6px; padding:8px 8px 24px 8px;
   pointer-events:auto; z-index:10;
   overflow-x:auto; -webkit-overflow-scrolling:touch;
   background:linear-gradient(transparent, rgba(0,0,0,0.8) 30%);
   justify-content:center;
 }
 .upgrade-btn {
-  flex-shrink:0; min-width:70px; padding:10px 14px;
+  flex-shrink:0; min-width:64px; padding:10px 12px;
   border-radius:10px; border:2px solid #555;
   background:rgba(20,20,40,0.9); color:#aaa;
-  font-size:12px; cursor:pointer; text-align:center;
-  transition:all 0.2s; white-space:nowrap;
+  font-size:11px; cursor:pointer; text-align:center;
+  transition:all 0.2s; white-space:nowrap; -webkit-tap-highlight-color:transparent;
 }
-.upgrade-btn.affordable { border-color:#ffd700; color:#ffd700; background:rgba(40,30,10,0.9); cursor:pointer; }
+.upgrade-btn.affordable { border-color:#ffd700; color:#ffd700; background:rgba(40,30,10,0.9); }
 .upgrade-btn.owned { border-color:#4caf50; color:#4caf50; background:rgba(10,30,10,0.9); }
-.upgrade-btn:hover:not(.owned) { transform:translateY(-2px); }
-.upgrade-btn .icon { font-size:20px; display:block; margin-bottom:2px; }
+.upgrade-btn:active:not(.owned) { transform:scale(0.95); }
+.upgrade-btn .icon { font-size:18px; display:block; margin-bottom:2px; }
 .upgrade-btn .name { font-weight:bold; font-size:11px; }
 .upgrade-btn .cost { font-size:10px; margin-top:1px; opacity:0.7; }
 
@@ -59,6 +59,13 @@ canvas { display:block; position:absolute; top:0; left:0; }
   text-shadow:0 0 15px rgba(255,215,0,0.6);
   opacity:0; transition:opacity 0.3s;
 }
+
+#mobileHint {
+  position:absolute; top:calc(50% + 30px); left:50%; transform:translate(-50%,-50%);
+  pointer-events:none; z-index:5;
+  color:rgba(255,255,255,0.5); font-size:14px; text-align:center;
+  display:none;
+}
 </style>
 </head>
 <body>
@@ -68,6 +75,7 @@ canvas { display:block; position:absolute; top:0; left:0; }
 <div id="bottomBar"></div>
 
 <div id="msgBox"></div>
+<div id="mobileHint">👆 左侧滑动移<br>👉 右侧点击射</div>
 
 <div id="gameOver">
   <h1>💀 游戏结束</h1>
@@ -86,6 +94,7 @@ const topBar = document.getElementById('topBar');
 const bottomBar = document.getElementById('bottomBar');
 const msgBox = document.getElementById('msgBox');
 const goDiv = document.getElementById('gameOver');
+const mobileHint = document.getElementById('mobileHint');
 let W, H;
 
 function resize() {
@@ -100,18 +109,76 @@ const keys = {};
 const mouse = { x: W/2, y: H/2, down: false };
 const isMobile = /Mobi|Android/i.test(navigator.userAgent);
 
+// Mobile separate controls
+let mobileMove = { active: false, x: 0, y: 0 }; // left side = move
+let mobileShoot = { active: false, x: 0, y: 0 }; // right side = shoot
+let mobileHintTimer = 0;
+
+if(isMobile) {
+  mobileHint.style.display = 'block';
+  mobileHintTimer = 5; // show hint for 5 seconds
+}
+
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'u' || e.key === 'U') toggleStatsPanel();
   e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; e.preventDefault(); });
-canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-canvas.addEventListener('mousedown', () => mouse.down = true);
-canvas.addEventListener('mouseup', () => mouse.down = false);
-canvas.addEventListener('touchmove', e => { e.preventDefault(); mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, {passive:false});
-canvas.addEventListener('touchstart', e => { e.preventDefault(); mouse.down = true; mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, {passive:false});
-canvas.addEventListener('touchend', () => mouse.down = false);
+
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  if(isMobile) {
+    if(e.clientX < W/2) { mobileMove.x = e.clientX; mobileMove.y = e.clientY; }
+    else { mobileShoot.x = e.clientX; mobileShoot.y = e.clientY; }
+  }
+});
+canvas.addEventListener('mousedown', e => {
+  if(isMobile) {
+    if(e.clientX < W/2) { mobileMove.active = true; mobileMove.x = e.clientX; mobileMove.y = e.clientY; }
+    else { mobileShoot.active = true; mobileShoot.x = e.clientX; mobileShoot.y = e.clientY; }
+  } else { mouse.down = true; }
+});
+canvas.addEventListener('mouseup', e => {
+  if(isMobile) {
+    if(e.clientX < W/2) mobileMove.active = false;
+    else mobileShoot.active = false;
+  } else { mouse.down = false; }
+});
+
+// Touch events
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  for(const t of e.changedTouches) {
+    if(t.clientX < W/2) { mobileMove.active = true; mobileMove.x = t.clientX; mobileMove.y = t.clientY; }
+    else { mobileShoot.active = true; mobileShoot.x = t.clientX; mobileShoot.y = t.clientY; }
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for(const t of e.changedTouches) {
+    if(t.clientX < W/2) { mobileMove.x = t.clientX; mobileMove.y = t.clientY; }
+    else { mobileShoot.x = t.clientX; mobileShoot.y = t.clientY; }
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  // Need to track all active touches
+  let leftActive = false, rightActive = false;
+  for(const t of e.touches) {
+    if(t.clientX < W/2) leftActive = true;
+    else rightActive = true;
+  }
+  mobileMove.active = leftActive;
+  mobileShoot.active = rightActive;
+  mouse.down = false;
+}, {passive:false});
+
+canvas.addEventListener('touchcancel', () => {
+  mobileMove.active = false; mobileShoot.active = false; mouse.down = false;
+});
 
 // ==================== PARTICLES ====================
 class Particle {
@@ -234,18 +301,15 @@ class Enemy {
   update(dt, player) {
     const dx=player.x-this.x, dy=player.y-this.y;
     const dist=Math.sqrt(dx*dx+dy*dy)||1;
-    const toPlayer=dist<this.radius+player.radius+400;
 
-    if(this.type==='shooter' && toPlayer){
-      // Move to range
+    if(this.type==='shooter'){
       if(dist>250){ this.x+=(dx/dist)*this.speed*dt; this.y+=(dy/dist)*this.speed*dt; }
-      // Shoot
       this.shootTimer-=dt;
       if(this.shootTimer<=0){
         this.shootTimer=this.shootInterval;
         const a=Math.atan2(dy,dx);
         enemyBullets.push(new Bullet(this.x,this.y,a,{bulletSpeed:250,damage:8,color:'#00e5ff',size:3,pierce:0,explosive:false,explRadius:0,explDmg:0}));
-        enemyBullets.back().isEnemy=true;
+        enemyBullets[enemyBullets.length-1].isEnemy=true;
       }
     } else {
       this.x+=(dx/dist)*this.speed*dt;
@@ -277,7 +341,6 @@ class Enemy {
       ctx.fillRect(this.x-bw/2,by,bw*r,bh);
     }
     ctx.restore();
-    // Shooter indicator
     if(this.type==='shooter'){
       ctx.save(); ctx.strokeStyle='rgba(0,229,255,0.3)'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.arc(this.x,this.y,this.radius+8,0,Math.PI*2); ctx.stroke(); ctx.restore();
@@ -285,7 +348,6 @@ class Enemy {
   }
   get dead() { return this.hp<=0; }
 }
-Enemy.prototype.isEnemy=true;
 
 // ==================== COIN ====================
 class Coin {
@@ -323,14 +385,13 @@ const player = {
   hp: 100, maxHp: 100, magnetRange: 80,
   weaponIdx: 0,
   cooldown: 0, invuln: 0, flashTimer: 0,
-  // Stat upgrade levels (separate from weapon)
   stats: { hp:0, speed:0, magnet:0, regen:0 },
   statsMax: { hp:5, speed:4, magnet:4, regen:3 },
   statsCost: [
-    [0,20,50,100,180],   // hp: +20 per level
-    [0,25,60,120,200],   // speed: +30 per level
-    [0,20,50,100,160],   // magnet: +25 per level
-    [0,40,100,200],      // regen: 1hp/3s per level
+    [0,20,50,100,180],
+    [0,25,60,120,200],
+    [0,20,50,100,160],
+    [0,40,100,200],
   ],
   regenTimer: 0,
 };
@@ -412,7 +473,7 @@ function showMsg(text) {
 // ==================== UPGRADE ====================
 function buyWeapon(idx) {
   const w=WEAPONS[idx];
-  if(idx<=player.weaponIdx) return; // already owned
+  if(idx<=player.weaponIdx) return;
   if(gold<w.cost) return;
   gold-=w.cost;
   player.weaponIdx=idx;
@@ -430,7 +491,6 @@ function buyStat(stat) {
   gold-=cost;
   player.stats[stat]++;
   refreshStats();
-  if(statsPanelOpen) renderStatsPanel();
   renderBottomBar();
   updateUI();
   const names={hp:'生命上限',speed:'移动速度',magnet:'磁铁范围',regen:'生命回复'};
@@ -449,14 +509,12 @@ function renderBottomBar() {
     if(owned) { cls+=' owned'; costText='已装备'; }
     else if(locked) { costText='🔒'; }
     else { costText='💰'+w[i].cost; if(gold>=w[i].cost) cls+=' affordable'; }
-
-    html+=`<div class="${cls}" onclick="buyWeapon(${i})" title="${w[i].desc}">
+    html+=`<div class="${cls}" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="buyWeapon(${i})" title="${w[i].desc}">
       <span class="icon">${w[i].icon}</span>
       <span class="name">${w[i].name}</span>
       <span class="cost">${costText}</span>
     </div>`;
   }
-  // Stat upgrade quick buttons
   const statIcons={hp:'❤️',speed:'👟',magnet:'🧲'};
   const statKeys=['hp','speed','magnet'];
   for(const s of statKeys){
@@ -464,32 +522,21 @@ function renderBottomBar() {
     if(lv>=max) continue;
     const cost=player.statsCost[statKeys.indexOf(s)][lv];
     const canBuy=gold>=cost;
-    html+=`<div class="upgrade-btn${canBuy?' affordable':''}" onclick="buyStat('${s}')">
+    html+=`<div class="upgrade-btn${canBuy?' affordable':''}" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="buyStat('${s}')">
       <span class="icon">${statIcons[s]}</span>
       <span class="name">Lv${lv+1}</span>
       <span class="cost">💰${cost}</span>
     </div>`;
   }
-  html+=`<div class="upgrade-btn affordable" onclick="toggleStatsPanel()" style="background:rgba(79,195,247,0.15);border-color:#4fc3f7;color:#4fc3f7;">
+  html+=`<div class="upgrade-btn affordable" ontouchstart="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="toggleStatsPanel()" style="background:rgba(79,195,247,0.15);border-color:#4fc3f7;color:#4fc3f7;">
     <span class="icon">📋</span><span class="name">更多</span><span class="cost">按U</span></div>`;
   bottomBar.innerHTML=html;
 }
 
-function renderStatsPanel() {
-  // We'll use a simple approach: show/hide a stats overlay
-  // Actually let me just update the top bar info more prominently
-  updateUI();
-}
+function toggleStatsPanel() { statsPanelOpen=!statsPanelOpen; updateUI(); }
 
-function toggleStatsPanel() {
-  statsPanelOpen=!statsPanelOpen;
-  updateUI();
-}
-
-// ==================== UI ====================
 function updateUI() {
   const w=getWeapon();
-  const hpPct=Math.ceil(player.hp/player.maxHp*100);
   topBar.innerHTML=`
     <span class="stat">❤️ ${Math.ceil(player.hp)}/${player.maxHp}</span>
     <span class="stat gold-text">💰 ${gold}</span>
@@ -497,7 +544,6 @@ function updateUI() {
     <span class="stat">💀 ${kills}</span>
     <span class="stat">${w.icon} ${w.name}</span>
   `;
-
   if(statsPanelOpen) {
     topBar.innerHTML+=`
       <div style="position:absolute;top:40px;left:8px;right:8px;background:rgba(10,10,30,0.95);border:1px solid #4fc3f7;border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto;">
@@ -507,16 +553,12 @@ function updateUI() {
         const vals={hp:player.maxHp,speed:player.speed,magnet:player.magnetRange,regen:getStatValue('regen')};
         const cost=lv<max?player.statsCost[['hp','speed','magnet','regen'].indexOf(s)][lv]:0;
         const canBuy=gold>=cost&&lv<max;
-        return `<div class="upgrade-btn${lv>=max?' owned':canBuy?' affordable':''}" onclick="buyStat('${s}')" style="pointer-events:auto;">
-          <span>${names[s]}</span><br>
-          <span style="font-size:10px">Lv${lv}/${max}=${vals[s]}</span><br>
-          <span style="font-size:10px">${lv>=max?'MAX':'💰'+cost}</span></div>`;
+        return `<div class="upgrade-btn${lv>=max?' owned':canBuy?' affordable':''}" ontouchstart="event.stopPropagation()" onclick="buyStat('${s}')" style="pointer-events:auto;"><span>${names[s]}</span><br><span style="font-size:10px">Lv${lv}/${max}=${vals[s]}</span><br><span style="font-size:10px">${lv>=max?'MAX':'💰'+cost}</span></div>`;
       }).join('')}
       </div>`;
   }
 }
 
-// ==================== WAVE ====================
 function startWave() {
   waveTotal=5+wave*4;
   enemiesRemaining=waveTotal;
@@ -526,7 +568,6 @@ function startWave() {
   updateUI();
 }
 
-// ==================== RESTART ====================
 function restart() {
   player.x=W/2; player.y=H/2;
   player.weaponIdx=0;
@@ -548,19 +589,24 @@ function update(dt) {
   if(gameOver) return;
   dt=Math.min(dt,0.1);
 
-  // Move player
+  // --- MOVEMENT ---
   let dx=0, dy=0;
-  if(keys['w']||keys['arrowup']) dy-=-1;
+  if(keys['w']||keys['arrowup']) dy-=1;
   if(keys['s']||keys['arrowdown']) dy+=1;
   if(keys['a']||keys['arrowleft']) dx-=1;
   if(keys['d']||keys['arrowright']) dx+=1;
-  if(isMobile && mouse.down) {
-    // Mobile: move toward touch point
-    const mdx=mouse.x-player.x, mdy=mouse.y-player.y;
+
+  if(isMobile && mobileMove.active) {
+    const mdx=mobileMove.x-player.x, mdy=mobileMove.y-player.y;
     const mlen=Math.sqrt(mdx*mdx+mdy*mdy);
-    if(mlen>30){ dx=mdx/mlen; dy=mdy/mlen; }
+    if(mlen>15){ dx=mdx/mlen; dy=mdy/mlen; }
+    mobileHintTimer-=dt;
   }
-  if(dx!==0||dy!==0){ const l=Math.sqrt(dx*dx+dy*dy); dx/=l; dy/=l; }
+
+  if(dx!==0||dy!==0){
+    const l=Math.sqrt(dx*dx+dy*dy);
+    dx/=l; dy/=l;
+  }
   player.x+=dx*player.speed*dt;
   player.y+=dy*player.speed*dt;
   player.x=Math.max(player.radius,Math.min(W-player.radius,player.x));
@@ -577,10 +623,23 @@ function update(dt) {
     }
   }
 
-  // Shoot
-  const angle=Math.atan2(mouse.y-player.y, mouse.x-player.x);
+  // --- SHOOTING ---
+  let aimX, aimY, shooting;
+  if(isMobile) {
+    // Mobile: right side touch = shoot toward that point
+    shooting = mobileShoot.active;
+    aimX = mobileShoot.x;
+    aimY = mobileShoot.y;
+  } else {
+    shooting = mouse.down;
+    aimX = mouse.x;
+    aimY = mouse.y;
+  }
+
+  const angle=Math.atan2(aimY-player.y, aimX-player.x);
   const w=getWeapon();
-  if(mouse.down){
+
+  if(shooting){
     player.cooldown-=dt;
     while(player.cooldown<=0){
       player.cooldown+=1/w.fireRate;
@@ -594,7 +653,9 @@ function update(dt) {
       }
       particles.push(new Particle(player.x+Math.cos(angle)*player.radius,player.y+Math.sin(angle)*player.radius,Math.cos(angle)*80,Math.sin(angle)*80,w.color,0.12,w.size));
     }
-  } else { player.cooldown=Math.max(0,player.cooldown-dt); }
+  } else {
+    player.cooldown=Math.max(0,player.cooldown-dt);
+  }
 
   // Spawn
   if(enemiesRemaining>0){ spawnTimer-=dt; if(spawnTimer<=0){ spawnEnemy(); enemiesRemaining--; spawnTimer=spawnInterval; } }
@@ -614,8 +675,7 @@ function update(dt) {
     const b=bullets[i];
     for(let j=enemies.length-1;j>=0;j--){
       const e=enemies[j];
-      const edx=b.x-e.x, edy=b.y-e.y;
-      if(Math.sqrt(edx*edx+edy*edy)<e.radius+b.size+2){
+      if(Math.hypot(b.x-e.x,b.y-e.y)<e.radius+b.size+2){
         e.hp-=b.damage; e.hitFlash=0.1;
         for(let k=0;k<3;k++) particles.push(new Particle(b.x,b.y,(Math.random()-0.5)*80,(Math.random()-0.5)*80,'#ffeb3b',0.2,2));
         if(b.explosive){
@@ -633,8 +693,7 @@ function update(dt) {
     for(let j=enemies.length-1;j>=0;j--){
       const e=enemies[j];
       if(ex.damaged.has(j)) continue;
-      const edx=ex.x-e.x, edy=ex.y-e.y;
-      if(Math.sqrt(edx*edx+edy*edy)<e.radius+ex.currentRadius){
+      if(Math.hypot(ex.x-e.x,ex.y-e.y)<e.radius+ex.currentRadius){
         ex.damaged.add(j);
         e.hp-=ex.damage; e.hitFlash=0.1;
         if(e.hp<=0){ killEnemy(e); enemies.splice(j,1); }
@@ -645,8 +704,7 @@ function update(dt) {
   // Enemy bullets vs player
   for(let i=enemyBullets.length-1;i>=0;i--){
     const b=enemyBullets[i];
-    const pdx=b.x-player.x, pdy=b.y-player.y;
-    if(Math.sqrt(pdx*pdx+pdy*pdy)<player.radius+b.size+2){
+    if(Math.hypot(b.x-player.x,b.y-player.y)<player.radius+b.size+2){
       takeDamage(b.damage);
       enemyBullets.splice(i,1);
     }
@@ -654,8 +712,7 @@ function update(dt) {
 
   // Enemy vs player
   for(const e of enemies){
-    const edx=player.x-e.x, edy=player.y-e.y;
-    if(Math.sqrt(edx*edx+edy*edy)<player.radius+e.radius){
+    if(Math.hypot(player.x-e.x,player.y-e.y)<player.radius+e.radius){
       takeDamage(e.damage);
       const a=Math.atan2(e.y-player.y,e.x-player.x);
       e.x+=Math.cos(a)*30; e.y+=Math.sin(a)*30;
@@ -665,8 +722,7 @@ function update(dt) {
   // Collect coins
   for(let i=coins.length-1;i>=0;i--){
     const c=coins[i];
-    const cdx=player.x-c.x, cdy=player.y-c.y;
-    if(Math.sqrt(cdx*cdx+cdy*cdy)<player.radius+c.radius+5){
+    if(Math.hypot(player.x-c.x,player.y-c.y)<player.radius+c.radius+5){
       gold+=c.value; totalGold+=c.value; coins.splice(i,1);
     }
   }
@@ -683,7 +739,7 @@ function update(dt) {
   if(shakeAmount<0.05) shakeAmount=0;
 
   updateUI();
-  renderBottomBar(); // Keep bar updated for affordability colors
+  renderBottomBar();
 }
 
 function draw() {
@@ -702,16 +758,12 @@ function draw() {
 
   // Particles
   for(const p of particles) p.draw(ctx);
-
   // Explosions
   for(const ex of explosions) ex.draw(ctx);
-
   // Coins
   for(const c of coins) c.draw(ctx);
-
   // Enemies
   for(const e of enemies) e.draw(ctx);
-
   // Bullets
   for(const b of bullets) b.draw(ctx);
   for(const b of enemyBullets) b.draw(ctx);
@@ -726,27 +778,82 @@ function draw() {
   ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2; ctx.stroke();
 
   // Gun barrel
-  const angle=Math.atan2(mouse.y-player.y,mouse.x-player.x);
-  const wx=getWeapon();
+  const angle=Math.atan2(
+    isMobile&&mobileShoot.active ? mobileShoot.y-player.y : mouse.y-player.y,
+    isMobile&&mobileShoot.active ? mobileShoot.x-player.x : mouse.x-player.x
+  );
   const tip={x:player.x+Math.cos(angle)*(player.radius+10),y:player.y+Math.sin(angle)*(player.radius+10)};
   ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(player.x+Math.cos(angle)*player.radius*0.5,player.y+Math.sin(angle)*player.radius*0.5);
   ctx.lineTo(tip.x,tip.y); ctx.stroke();
+  const wx=getWeapon();
   ctx.fillStyle=wx.color; ctx.beginPath(); ctx.arc(tip.x,tip.y,4,0,Math.PI*2); ctx.fill();
   ctx.restore();
 
   // Floating texts
   for(const t of floatingTexts) t.draw(ctx);
 
-  // Crosshair
-  ctx.save();
-  ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1;
-  const ch=10;
-  ctx.beginPath(); ctx.moveTo(mouse.x-ch,mouse.y); ctx.lineTo(mouse.x-3,mouse.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(mouse.x+3,mouse.y); ctx.lineTo(mouse.x+ch,mouse.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y-ch); ctx.lineTo(mouse.x,mouse.y-3); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y+3); ctx.lineTo(mouse.x,mouse.y+ch); ctx.stroke();
-  ctx.restore();
+  // Crosshair (desktop only)
+  if(!isMobile) {
+    ctx.save();
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1;
+    const ch=10;
+    ctx.beginPath(); ctx.moveTo(mouse.x-ch,mouse.y); ctx.lineTo(mouse.x-3,mouse.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mouse.x+3,mouse.y); ctx.lineTo(mouse.x+ch,mouse.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y-ch); ctx.lineTo(mouse.x,mouse.y-3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y+3); ctx.lineTo(mouse.x,mouse.y+ch); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mobile: draw touch indicators
+  if(isMobile) {
+    // Left side: move zone indicator
+    ctx.save();
+    ctx.fillStyle='rgba(255,255,255,0.06)';
+    ctx.fillRect(0,0,W/2,H);
+    ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
+    ctx.setLineDash([8,12]);
+    ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if(mobileMove.active) {
+      // Draw joystick visual
+      ctx.fillStyle='rgba(255,255,255,0.1)';
+      ctx.beginPath(); ctx.arc(mobileMove.x,mobileMove.y,35,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(mobileMove.x,mobileMove.y,35,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(mobileMove.x,mobileMove.y,12,0,Math.PI*2); ctx.fill();
+    }
+
+    // Right side: shoot zone indicator
+    ctx.fillStyle='rgba(255,50,50,0.04)';
+    ctx.fillRect(W/2,0,W/2,H);
+    if(mobileShoot.active) {
+      const sa=Math.atan2(mobileShoot.y-player.y,mobileShoot.x-player.x);
+      ctx.strokeStyle='rgba(255,100,100,0.5)'; ctx.lineWidth=2;
+      ctx.setLineDash([3,5]);
+      ctx.beginPath();
+      ctx.moveTo(player.x+Math.cos(sa)*player.radius,player.y+Math.sin(sa)*player.radius);
+      ctx.lineTo(mobileShoot.x,mobileShoot.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle='rgba(255,100,100,0.5)';
+      ctx.beginPath(); ctx.arc(mobileShoot.x,mobileShoot.y,8,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+
+    // Hint text
+    if(mobileHintTimer>0 && mobileHint.style.display!=='none') {
+      ctx.save();
+      ctx.fillStyle=`rgba(255,255,255,${Math.min(1,mobileHintTimer)})`;
+      ctx.font='14px "PingFang SC","Microsoft YaHei",sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('⬅ 左侧滑动移动',W*0.25,H*0.4);
+      ctx.fillText('右侧点击射击 ➡',W*0.75,H*0.4);
+      ctx.restore();
+    }
+  }
 
   ctx.restore(); // shake
 
