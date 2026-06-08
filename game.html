@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>射击升级 - 武器大师</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a12; overflow:hidden; font-family:'PingFang SC','Microsoft YaHei',sans-serif; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
+canvas { display:block; position:absolute; top:0; left:0; }
+
+#topBar {
+  position:absolute; top:8px; left:8px; right:8px;
+  display:flex; justify-content:space-between; align-items:center;
+  pointer-events:none; z-index:10;
+}
+.stat { color:#fff; font-size:13px; background:rgba(0,0,0,0.6); padding:4px 10px; border-radius:6px; text-shadow:0 0 6px rgba(0,0,0,0.8); }
+.gold-text { color:#ffd700; }
+
+#bottomBar {
+  position:absolute; bottom:0; left:0; right:0;
+  display:flex; gap:6px; padding:8px;
+  pointer-events:auto; z-index:10;
+  overflow-x:auto; -webkit-overflow-scrolling:touch;
+  background:linear-gradient(transparent, rgba(0,0,0,0.8) 30%);
+  justify-content:center;
+}
+.upgrade-btn {
+  flex-shrink:0; min-width:70px; padding:10px 14px;
+  border-radius:10px; border:2px solid #555;
+  background:rgba(20,20,40,0.9); color:#aaa;
+  font-size:12px; cursor:pointer; text-align:center;
+  transition:all 0.2s; white-space:nowrap;
+}
+.upgrade-btn.affordable { border-color:#ffd700; color:#ffd700; background:rgba(40,30,10,0.9); cursor:pointer; }
+.upgrade-btn.owned { border-color:#4caf50; color:#4caf50; background:rgba(10,30,10,0.9); }
+.upgrade-btn:hover:not(.owned) { transform:translateY(-2px); }
+.upgrade-btn .icon { font-size:20px; display:block; margin-bottom:2px; }
+.upgrade-btn .name { font-weight:bold; font-size:11px; }
+.upgrade-btn .cost { font-size:10px; margin-top:1px; opacity:0.7; }
+
+#gameOver {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  text-align:center; pointer-events:auto; z-index:20; display:none;
+}
+#gameOver h1 { color:#ff4444; font-size:32px; text-shadow:0 0 20px rgba(255,0,0,0.5); margin-bottom:8px; }
+#gameOver .stats { color:#ccc; font-size:14px; margin:3px 0; }
+#gameOver button {
+  margin-top:12px; padding:10px 28px; font-size:15px;
+  background:#4fc3f7; color:#000; border:none; border-radius:8px;
+  cursor:pointer; font-weight:bold; transition:all 0.2s;
+}
+#gameOver button:hover { background:#81d4fa; transform:scale(1.05); }
+
+#msgBox {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  pointer-events:none; z-index:15;
+  color:#ffd700; font-size:28px; font-weight:bold;
+  text-shadow:0 0 15px rgba(255,215,0,0.6);
+  opacity:0; transition:opacity 0.3s;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="topBar"></div>
+<div id="bottomBar"></div>
+
+<div id="msgBox"></div>
+
+<div id="gameOver">
+  <h1>💀 游戏结束</h1>
+  <div class="stats" id="goKills"></div>
+  <div class="stats" id="goGold"></div>
+  <div class="stats" id="goWave"></div>
+  <div class="stats" id="goWeapon"></div>
+  <button onclick="restart()">🔄 再来一局</button>
+</div>
+
+<script>
+// ==================== CANVAS ====================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const topBar = document.getElementById('topBar');
+const bottomBar = document.getElementById('bottomBar');
+const msgBox = document.getElementById('msgBox');
+const goDiv = document.getElementById('gameOver');
+let W, H;
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  canvas.width = W; canvas.height = H;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ==================== INPUT ====================
+const keys = {};
+const mouse = { x: W/2, y: H/2, down: false };
+const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === 'u' || e.key === 'U') toggleStatsPanel();
+  e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; e.preventDefault(); });
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mousedown', () => mouse.down = true);
+canvas.addEventListener('mouseup', () => mouse.down = false);
+canvas.addEventListener('touchmove', e => { e.preventDefault(); mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, {passive:false});
+canvas.addEventListener('touchstart', e => { e.preventDefault(); mouse.down = true; mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, {passive:false});
+canvas.addEventListener('touchend', () => mouse.down = false);
+
+// ==================== PARTICLES ====================
+class Particle {
+  constructor(x, y, vx, vy, color, life, size=3) {
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.color=color; this.life=life; this.maxLife=life; this.size=size;
+  }
+  update(dt) { this.x+=this.vx*dt; this.y+=this.vy*dt; this.life-=dt; this.vx*=0.97; this.vy*=0.97; }
+  draw(ctx) {
+    const a = Math.max(0, this.life/this.maxLife);
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=this.color;
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.size*a, 0, Math.PI*2); ctx.fill(); ctx.restore();
+  }
+  get dead() { return this.life<=0; }
+}
+
+class FloatingText {
+  constructor(x, y, text, color, size=14) {
+    this.x=x; this.y=y; this.text=text; this.color=color; this.life=1; this.vy=-50; this.size=size;
+  }
+  update(dt) { this.y+=this.vy*dt; this.life-=dt*0.7; }
+  draw(ctx) {
+    ctx.save(); ctx.globalAlpha=Math.max(0,this.life);
+    ctx.fillStyle=this.color; ctx.font=`bold ${this.size}px "PingFang SC","Microsoft YaHei",sans-serif`;
+    ctx.textAlign='center'; ctx.fillText(this.text,this.x,this.y); ctx.restore();
+  }
+  get dead() { return this.life<=0; }
+}
+
+// ==================== WEAPON DEFINITIONS ====================
+const WEAPONS = [
+  { id:'pistol',  name:'手枪', icon:'🔫', cost:0,   damage:8,  fireRate:2.5, bulletSpeed:500, bullets:1, spread:0.06, color:'#ffeb3b', size:3, pierce:0, explosive:false, desc:'基础武器' },
+  { id:'smg',     name:'冲锋枪', icon:'💥', cost:50,  damage:6,  fireRate:6,   bulletSpeed:550, bullets:1, spread:0.1,  color:'#ff9800', size:2.5, pierce:0.1, explosive:false, desc:'高速连射' },
+  { id:'shotgun', name:'霰弹枪', icon:'🔥', cost:120, damage:5,  fireRate:1.5, bulletSpeed:400, bullets:5, spread:0.35, color:'#f44336', size:2, pierce:0, explosive:false, desc:'扇形散射' },
+  { id:'rifle',   name:'步枪',   icon:'🎯', cost:300, damage:15, fireRate:4,   bulletSpeed:700, bullets:1, spread:0.03, color:'#4fc3f7', size:3, pierce:0.5, explosive:false, desc:'精准穿透' },
+  { id:'laser',   name:'激光枪', icon:'⚡', cost:600, damage:3, fireRate:20,   bulletSpeed:900, bullets:1, spread:0.02, color:'#00e5ff', size:1.5, pierce:1, explosive:false, desc:'持续光束' },
+  { id:'rocket',  name:'火箭炮', icon:'🚀', cost:1500,damage:40, fireRate:1,   bulletSpeed:300, bullets:1, spread:0.05, color:'#ff6d00', size:6, pierce:0, explosive:true, explRadius:80, explDmg:25, desc:'范围爆炸' },
+];
+
+// ==================== BULLET ====================
+class Bullet {
+  constructor(x, y, angle, weapon) {
+    this.x=x; this.y=y;
+    this.vx=Math.cos(angle)*weapon.bulletSpeed;
+    this.vy=Math.sin(angle)*weapon.bulletSpeed;
+    this.damage=weapon.damage;
+    this.color=weapon.color;
+    this.size=weapon.size;
+    this.pierce=Math.random()<weapon.pierce;
+    this.explosive=weapon.explosive;
+    this.explRadius=weapon.explRadius||0;
+    this.explDmg=weapon.explDmg||0;
+    this.trail=[];
+    this.life=3;
+  }
+  update(dt) {
+    this.trail.push({x:this.x, y:this.y});
+    if(this.trail.length>8) this.trail.shift();
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    this.life-=dt;
+  }
+  draw(ctx) {
+    for(let i=0;i<this.trail.length;i++){
+      const t=this.trail[i];
+      ctx.save(); ctx.globalAlpha=(i/this.trail.length)*0.4;
+      ctx.fillStyle=this.color; ctx.beginPath();
+      ctx.arc(t.x,t.y,this.size*0.6+i*0.2,0,Math.PI*2); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); ctx.shadowColor=this.color; ctx.shadowBlur=6;
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=this.color; ctx.beginPath(); ctx.arc(this.x,this.y,this.size*0.6,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  get outOfBounds() {
+    return this.x<-60||this.x>W+60||this.y<-60||this.y>H+60||this.life<=0;
+  }
+}
+
+// ==================== EXPLOSION ====================
+class Explosion {
+  constructor(x, y, radius, damage) {
+    this.x=x; this.y=y; this.radius=radius; this.damage=damage;
+    this.maxRadius=radius; this.currentRadius=0; this.life=0.3; this.maxLife=0.3;
+    this.damaged=new Set();
+  }
+  update(dt) {
+    this.currentRadius=this.maxRadius*(1-this.life/this.maxLife);
+    this.life-=dt;
+  }
+  draw(ctx) {
+    const a=Math.max(0,this.life/this.maxLife);
+    ctx.save(); ctx.globalAlpha=a*0.6;
+    const g=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,this.currentRadius);
+    g.addColorStop(0,'rgba(255,255,200,0.9)'); g.addColorStop(0.3,'rgba(255,150,0,0.7)'); g.addColorStop(0.7,'rgba(255,50,0,0.3)'); g.addColorStop(1,'rgba(255,0,0,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(this.x,this.y,this.currentRadius,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
+  get dead() { return this.life<=0; }
+}
+
+// ==================== ENEMY ====================
+class Enemy {
+  constructor(x, y, type, wave) {
+    this.x=x; this.y=y;
+    const types = {
+      normal:{r:16,s:70,hp:25,g:5,dmg:10,colors:['#e53935','#ef5350']},
+      fast:  {r:12,s:150,hp:15,g:3,dmg:5,colors:['#ab47bc','#ce93d8']},
+      tank:  {r:24,s:45,hp:70,g:15,dmg:18,colors:['#43a047','#66bb6a']},
+      boss:  {r:38,s:30,hp:250,g:80,dmg:30,colors:['#ff6f00','#ffa726']},
+      shooter:{r:18,s:50,hp:30,g:12,dmg:8,colors:['#00acc1','#4dd0e1']},
+    };
+    const t=types[type];
+    this.type=type; this.radius=t.r; this.speed=t.s+wave*3;
+    this.maxHp=t.hp+wave*(type==='boss'?40:type==='tank'?15:5);
+    this.hp=this.maxHp; this.gold=t.g+wave; this.damage=t.dmg+wave;
+    this.c1=t.colors[0]; this.c2=t.colors[1];
+    this.hitFlash=0;
+    if(type==='shooter'){
+      this.shootTimer=2+Math.random(); this.shootInterval=2;
+    }
+  }
+  update(dt, player) {
+    const dx=player.x-this.x, dy=player.y-this.y;
+    const dist=Math.sqrt(dx*dx+dy*dy)||1;
+    const toPlayer=dist<this.radius+player.radius+400;
+
+    if(this.type==='shooter' && toPlayer){
+      // Move to range
+      if(dist>250){ this.x+=(dx/dist)*this.speed*dt; this.y+=(dy/dist)*this.speed*dt; }
+      // Shoot
+      this.shootTimer-=dt;
+      if(this.shootTimer<=0){
+        this.shootTimer=this.shootInterval;
+        const a=Math.atan2(dy,dx);
+        enemyBullets.push(new Bullet(this.x,this.y,a,{bulletSpeed:250,damage:8,color:'#00e5ff',size:3,pierce:0,explosive:false,explRadius:0,explDmg:0}));
+        enemyBullets.back().isEnemy=true;
+      }
+    } else {
+      this.x+=(dx/dist)*this.speed*dt;
+      this.y+=(dy/dist)*this.speed*dt;
+    }
+    this.hitFlash=Math.max(0,this.hitFlash-dt);
+  }
+  draw(ctx) {
+    ctx.save();
+    if(this.hitFlash>0){ ctx.shadowColor='#fff'; ctx.shadowBlur=10; }
+    const g=ctx.createRadialGradient(this.x,this.y,this.radius*0.3,this.x,this.y,this.radius);
+    g.addColorStop(0,this.c2); g.addColorStop(1,this.c1);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(this.x,this.y,this.radius,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
+    // Eyes
+    ctx.fillStyle='#fff';
+    const eo=this.radius*0.35;
+    ctx.beginPath(); ctx.arc(this.x-eo,this.y-eo*0.5,this.radius*0.22,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(this.x+eo,this.y-eo*0.5,this.radius*0.22,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000';
+    ctx.beginPath(); ctx.arc(this.x-eo,this.y-eo*0.5,this.radius*0.1,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(this.x+eo,this.y-eo*0.5,this.radius*0.1,0,Math.PI*2); ctx.fill();
+    // HP bar
+    if(this.hp<this.maxHp){
+      const bw=this.radius*2, bh=3, by=this.y-this.radius-8;
+      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(this.x-bw/2,by,bw,bh);
+      const r=this.hp/this.maxHp;
+      ctx.fillStyle=r>0.5?'#4caf50':r>0.25?'#ff9800':'#f44336';
+      ctx.fillRect(this.x-bw/2,by,bw*r,bh);
+    }
+    ctx.restore();
+    // Shooter indicator
+    if(this.type==='shooter'){
+      ctx.save(); ctx.strokeStyle='rgba(0,229,255,0.3)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.radius+8,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+  }
+  get dead() { return this.hp<=0; }
+}
+Enemy.prototype.isEnemy=true;
+
+// ==================== COIN ====================
+class Coin {
+  constructor(x, y, value) {
+    this.x=x; this.y=y; this.value=value; this.radius=8;
+    this.life=10; this.bobPhase=Math.random()*Math.PI*2;
+  }
+  update(dt, player) {
+    this.life-=dt; this.bobPhase+=dt*3;
+    const dx=player.x-this.x, dy=player.y-this.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<player.magnetRange){
+      const s=350*(1-dist/player.magnetRange);
+      this.x+=(dx/dist)*s*dt; this.y+=(dy/dist)*s*dt;
+    }
+  }
+  draw(ctx) {
+    const bob=Math.sin(this.bobPhase)*3;
+    const a=this.life<2?this.life/2:1;
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.shadowColor='#ffd700'; ctx.shadowBlur=8;
+    const g=ctx.createRadialGradient(this.x,this.y+bob,2,this.x,this.y+bob,this.radius);
+    g.addColorStop(0,'#fff176'); g.addColorStop(0.5,'#ffd700'); g.addColorStop(1,'#ff8f00');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(this.x,this.y+bob,this.radius,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('$',this.x,this.y+bob);
+    ctx.restore();
+  }
+  get dead() { return this.life<=0; }
+}
+
+// ==================== PLAYER ====================
+const player = {
+  x: W/2, y: H/2, radius: 18, speed: 200,
+  hp: 100, maxHp: 100, magnetRange: 80,
+  weaponIdx: 0,
+  cooldown: 0, invuln: 0, flashTimer: 0,
+  // Stat upgrade levels (separate from weapon)
+  stats: { hp:0, speed:0, magnet:0, regen:0 },
+  statsMax: { hp:5, speed:4, magnet:4, regen:3 },
+  statsCost: [
+    [0,20,50,100,180],   // hp: +20 per level
+    [0,25,60,120,200],   // speed: +30 per level
+    [0,20,50,100,160],   // magnet: +25 per level
+    [0,40,100,200],      // regen: 1hp/3s per level
+  ],
+  regenTimer: 0,
+};
+
+function getWeapon() { return WEAPONS[player.weaponIdx]; }
+
+function getStatValue(stat) {
+  const lv = player.stats[stat];
+  switch(stat) {
+    case 'hp': return 100 + lv*20;
+    case 'speed': return 200 + lv*30;
+    case 'magnet': return 80 + lv*25;
+    case 'regen': return lv;
+    default: return 0;
+  }
+}
+
+function refreshStats() {
+  player.maxHp = getStatValue('hp');
+  player.hp = Math.min(player.hp, player.maxHp);
+  player.speed = getStatValue('speed');
+  player.magnetRange = getStatValue('magnet');
+}
+
+// ==================== GAME STATE ====================
+let gold=0, kills=0, wave=1, totalGold=0, gameOver=false;
+let enemiesRemaining=0, waveTotal=0, spawnTimer=0, spawnInterval=1.2;
+let bullets=[], enemyBullets=[], enemies=[], coins=[], particles=[], floatingTexts=[], explosions=[];
+let lastTime=0, shakeAmount=0, statsPanelOpen=false;
+
+function spawnEnemy() {
+  let type='normal';
+  const r=Math.random();
+  if(wave>=5 && r>0.9) type='shooter';
+  else if(r<0.45) type='normal';
+  else if(r<0.7) type='fast';
+  else if(r<0.9) type='tank';
+  else if(wave>=3) type='boss';
+
+  const m=50, side=Math.floor(Math.random()*4);
+  let x,y;
+  switch(side){case 0:x=-m;y=Math.random()*H;break;case 1:x=W+m;y=Math.random()*H;break;case 2:x=Math.random()*W;y=-m;break;case 3:x=Math.random()*W;y=H+m;break;}
+  enemies.push(new Enemy(x,y,type,wave));
+}
+
+function killEnemy(e) {
+  kills++;
+  for(let i=0;i<12;i++){
+    const a=Math.random()*Math.PI*2, s=50+Math.random()*150;
+    particles.push(new Particle(e.x,e.y,Math.cos(a)*s,Math.sin(a)*s,e.c1,0.5,3+Math.random()*3));
+  }
+  coins.push(new Coin(e.x,e.y,e.gold));
+  floatingTexts.push(new FloatingText(e.x,e.y-15,'+'+e.gold+'💰','#ffd700'));
+  if(e.type==='boss') shakeAmount=Math.max(shakeAmount,8);
+}
+
+function takeDamage(dmg) {
+  if(player.invuln>0) return;
+  player.hp-=dmg; player.invuln=0.4;
+  shakeAmount=Math.max(shakeAmount,4);
+  floatingTexts.push(new FloatingText(player.x,player.y-20,'-'+dmg,'#ff4444',16));
+  if(player.hp<=0){ player.hp=0; endGame(); }
+}
+
+function endGame() {
+  gameOver=true;
+  document.getElementById('goKills').textContent='🏆 击杀: '+kills;
+  document.getElementById('goGold').textContent='💰 累计金币: '+totalGold;
+  document.getElementById('goWave').textContent='🌊 存活波数: '+wave;
+  document.getElementById('goWeapon').textContent='🔫 最终武器: '+getWeapon().name;
+  goDiv.style.display='block';
+}
+
+function showMsg(text) {
+  msgBox.textContent=text; msgBox.style.opacity='1';
+  setTimeout(()=>{ msgBox.style.opacity='0'; },1500);
+}
+
+// ==================== UPGRADE ====================
+function buyWeapon(idx) {
+  const w=WEAPONS[idx];
+  if(idx<=player.weaponIdx) return; // already owned
+  if(gold<w.cost) return;
+  gold-=w.cost;
+  player.weaponIdx=idx;
+  renderBottomBar();
+  updateUI();
+  showMsg('🔫 升级为 '+w.name+'！');
+}
+
+function buyStat(stat) {
+  const lv=player.stats[stat];
+  const max=player.statsMax[stat];
+  if(lv>=max) return;
+  const cost=player.statsCost[['hp','speed','magnet','regen'].indexOf(stat)][lv];
+  if(gold<cost) return;
+  gold-=cost;
+  player.stats[stat]++;
+  refreshStats();
+  if(statsPanelOpen) renderStatsPanel();
+  renderBottomBar();
+  updateUI();
+  const names={hp:'生命上限',speed:'移动速度',magnet:'磁铁范围',regen:'生命回复'};
+  showMsg('⬆ '+names[stat]+' Lv.'+player.stats[stat]);
+}
+
+function renderBottomBar() {
+  let html='';
+  const w=WEAPONS;
+  for(let i=0;i<w.length;i++){
+    const owned=i<=player.weaponIdx;
+    const next=i===player.weaponIdx+1;
+    const locked=i>player.weaponIdx+1;
+    let cls='upgrade-btn';
+    let costText='';
+    if(owned) { cls+=' owned'; costText='已装备'; }
+    else if(locked) { costText='🔒'; }
+    else { costText='💰'+w[i].cost; if(gold>=w[i].cost) cls+=' affordable'; }
+
+    html+=`<div class="${cls}" onclick="buyWeapon(${i})" title="${w[i].desc}">
+      <span class="icon">${w[i].icon}</span>
+      <span class="name">${w[i].name}</span>
+      <span class="cost">${costText}</span>
+    </div>`;
+  }
+  // Stat upgrade quick buttons
+  const statIcons={hp:'❤️',speed:'👟',magnet:'🧲'};
+  const statKeys=['hp','speed','magnet'];
+  for(const s of statKeys){
+    const lv=player.stats[s], max=player.statsMax[s];
+    if(lv>=max) continue;
+    const cost=player.statsCost[statKeys.indexOf(s)][lv];
+    const canBuy=gold>=cost;
+    html+=`<div class="upgrade-btn${canBuy?' affordable':''}" onclick="buyStat('${s}')">
+      <span class="icon">${statIcons[s]}</span>
+      <span class="name">Lv${lv+1}</span>
+      <span class="cost">💰${cost}</span>
+    </div>`;
+  }
+  html+=`<div class="upgrade-btn affordable" onclick="toggleStatsPanel()" style="background:rgba(79,195,247,0.15);border-color:#4fc3f7;color:#4fc3f7;">
+    <span class="icon">📋</span><span class="name">更多</span><span class="cost">按U</span></div>`;
+  bottomBar.innerHTML=html;
+}
+
+function renderStatsPanel() {
+  // We'll use a simple approach: show/hide a stats overlay
+  // Actually let me just update the top bar info more prominently
+  updateUI();
+}
+
+function toggleStatsPanel() {
+  statsPanelOpen=!statsPanelOpen;
+  updateUI();
+}
+
+// ==================== UI ====================
+function updateUI() {
+  const w=getWeapon();
+  const hpPct=Math.ceil(player.hp/player.maxHp*100);
+  topBar.innerHTML=`
+    <span class="stat">❤️ ${Math.ceil(player.hp)}/${player.maxHp}</span>
+    <span class="stat gold-text">💰 ${gold}</span>
+    <span class="stat">🌊 第${wave}波</span>
+    <span class="stat">💀 ${kills}</span>
+    <span class="stat">${w.icon} ${w.name}</span>
+  `;
+
+  if(statsPanelOpen) {
+    topBar.innerHTML+=`
+      <div style="position:absolute;top:40px;left:8px;right:8px;background:rgba(10,10,30,0.95);border:1px solid #4fc3f7;border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto;">
+      ${['hp','speed','magnet','regen'].map(s=>{
+        const lv=player.stats[s],max=player.statsMax[s];
+        const names={hp:'生命',speed:'速度',magnet:'磁铁',regen:'回复'};
+        const vals={hp:player.maxHp,speed:player.speed,magnet:player.magnetRange,regen:getStatValue('regen')};
+        const cost=lv<max?player.statsCost[['hp','speed','magnet','regen'].indexOf(s)][lv]:0;
+        const canBuy=gold>=cost&&lv<max;
+        return `<div class="upgrade-btn${lv>=max?' owned':canBuy?' affordable':''}" onclick="buyStat('${s}')" style="pointer-events:auto;">
+          <span>${names[s]}</span><br>
+          <span style="font-size:10px">Lv${lv}/${max}=${vals[s]}</span><br>
+          <span style="font-size:10px">${lv>=max?'MAX':'💰'+cost}</span></div>`;
+      }).join('')}
+      </div>`;
+  }
+}
+
+// ==================== WAVE ====================
+function startWave() {
+  waveTotal=5+wave*4;
+  enemiesRemaining=waveTotal;
+  spawnInterval=Math.max(0.25,1.2-wave*0.06);
+  spawnTimer=0;
+  showMsg('🌊 第 '+wave+' 波');
+  updateUI();
+}
+
+// ==================== RESTART ====================
+function restart() {
+  player.x=W/2; player.y=H/2;
+  player.weaponIdx=0;
+  player.stats={hp:0,speed:0,magnet:0,regen:0};
+  refreshStats(); player.hp=player.maxHp;
+  player.cooldown=0; player.invuln=0; player.flashTimer=0;
+  player.regenTimer=0;
+  gold=0; kills=0; wave=1; totalGold=0;
+  bullets=[]; enemyBullets=[]; enemies=[]; coins=[]; particles=[]; floatingTexts=[]; explosions=[];
+  gameOver=false; shakeAmount=0; statsPanelOpen=false;
+  goDiv.style.display='none';
+  startWave();
+  renderBottomBar();
+  updateUI();
+}
+
+// ==================== GAME LOOP ====================
+function update(dt) {
+  if(gameOver) return;
+  dt=Math.min(dt,0.1);
+
+  // Move player
+  let dx=0, dy=0;
+  if(keys['w']||keys['arrowup']) dy-=-1;
+  if(keys['s']||keys['arrowdown']) dy+=1;
+  if(keys['a']||keys['arrowleft']) dx-=1;
+  if(keys['d']||keys['arrowright']) dx+=1;
+  if(isMobile && mouse.down) {
+    // Mobile: move toward touch point
+    const mdx=mouse.x-player.x, mdy=mouse.y-player.y;
+    const mlen=Math.sqrt(mdx*mdx+mdy*mdy);
+    if(mlen>30){ dx=mdx/mlen; dy=mdy/mlen; }
+  }
+  if(dx!==0||dy!==0){ const l=Math.sqrt(dx*dx+dy*dy); dx/=l; dy/=l; }
+  player.x+=dx*player.speed*dt;
+  player.y+=dy*player.speed*dt;
+  player.x=Math.max(player.radius,Math.min(W-player.radius,player.x));
+  player.y=Math.max(player.radius,Math.min(H-player.radius,player.y));
+  player.invuln=Math.max(0,player.invuln-dt);
+  player.flashTimer+=dt;
+
+  // Regen
+  if(player.stats.regen>0){
+    player.regenTimer-=dt;
+    if(player.regenTimer<=0){
+      player.regenTimer=3;
+      player.hp=Math.min(player.maxHp,player.hp+player.stats.regen);
+    }
+  }
+
+  // Shoot
+  const angle=Math.atan2(mouse.y-player.y, mouse.x-player.x);
+  const w=getWeapon();
+  if(mouse.down){
+    player.cooldown-=dt;
+    while(player.cooldown<=0){
+      player.cooldown+=1/w.fireRate;
+      const s=w.bullets;
+      for(let i=0;i<s;i++){
+        const a=angle+(i-(s-1)/2)*w.spread;
+        bullets.push(new Bullet(player.x+Math.cos(a)*player.radius,player.y+Math.sin(a)*player.radius,a,{
+          bulletSpeed:w.bulletSpeed, damage:w.damage, color:w.color, size:w.size,
+          pierce:w.pierce, explosive:w.explosive, explRadius:w.explRadius, explDmg:w.explDmg
+        }));
+      }
+      particles.push(new Particle(player.x+Math.cos(angle)*player.radius,player.y+Math.sin(angle)*player.radius,Math.cos(angle)*80,Math.sin(angle)*80,w.color,0.12,w.size));
+    }
+  } else { player.cooldown=Math.max(0,player.cooldown-dt); }
+
+  // Spawn
+  if(enemiesRemaining>0){ spawnTimer-=dt; if(spawnTimer<=0){ spawnEnemy(); enemiesRemaining--; spawnTimer=spawnInterval; } }
+  else if(enemies.length===0&&enemiesRemaining===0){ wave++; player.hp=Math.min(player.maxHp,player.hp+20); startWave(); }
+
+  // Update all
+  for(const b of bullets) b.update(dt);
+  for(const b of enemyBullets) b.update(dt);
+  for(const e of enemies) e.update(dt,player);
+  for(const c of coins) c.update(dt,player);
+  for(const p of particles) p.update(dt);
+  for(const t of floatingTexts) t.update(dt);
+  for(const ex of explosions) ex.update(dt);
+
+  // Bullet vs enemies
+  for(let i=bullets.length-1;i>=0;i--){
+    const b=bullets[i];
+    for(let j=enemies.length-1;j>=0;j--){
+      const e=enemies[j];
+      const edx=b.x-e.x, edy=b.y-e.y;
+      if(Math.sqrt(edx*edx+edy*edy)<e.radius+b.size+2){
+        e.hp-=b.damage; e.hitFlash=0.1;
+        for(let k=0;k<3;k++) particles.push(new Particle(b.x,b.y,(Math.random()-0.5)*80,(Math.random()-0.5)*80,'#ffeb3b',0.2,2));
+        if(b.explosive){
+          explosions.push(new Explosion(b.x,b.y,b.explRadius,b.explDmg));
+          shakeAmount=Math.max(shakeAmount,5);
+        }
+        if(e.hp<=0){ killEnemy(e); enemies.splice(j,1); }
+        if(!b.pierce){ bullets.splice(i,1); break; }
+      }
+    }
+  }
+
+  // Explosion vs enemies
+  for(const ex of explosions){
+    for(let j=enemies.length-1;j>=0;j--){
+      const e=enemies[j];
+      if(ex.damaged.has(j)) continue;
+      const edx=ex.x-e.x, edy=ex.y-e.y;
+      if(Math.sqrt(edx*edx+edy*edy)<e.radius+ex.currentRadius){
+        ex.damaged.add(j);
+        e.hp-=ex.damage; e.hitFlash=0.1;
+        if(e.hp<=0){ killEnemy(e); enemies.splice(j,1); }
+      }
+    }
+  }
+
+  // Enemy bullets vs player
+  for(let i=enemyBullets.length-1;i>=0;i--){
+    const b=enemyBullets[i];
+    const pdx=b.x-player.x, pdy=b.y-player.y;
+    if(Math.sqrt(pdx*pdx+pdy*pdy)<player.radius+b.size+2){
+      takeDamage(b.damage);
+      enemyBullets.splice(i,1);
+    }
+  }
+
+  // Enemy vs player
+  for(const e of enemies){
+    const edx=player.x-e.x, edy=player.y-e.y;
+    if(Math.sqrt(edx*edx+edy*edy)<player.radius+e.radius){
+      takeDamage(e.damage);
+      const a=Math.atan2(e.y-player.y,e.x-player.x);
+      e.x+=Math.cos(a)*30; e.y+=Math.sin(a)*30;
+    }
+  }
+
+  // Collect coins
+  for(let i=coins.length-1;i>=0;i--){
+    const c=coins[i];
+    const cdx=player.x-c.x, cdy=player.y-c.y;
+    if(Math.sqrt(cdx*cdx+cdy*cdy)<player.radius+c.radius+5){
+      gold+=c.value; totalGold+=c.value; coins.splice(i,1);
+    }
+  }
+
+  // Cleanup
+  bullets=bullets.filter(b=>!b.outOfBounds);
+  enemyBullets=enemyBullets.filter(b=>!b.outOfBounds);
+  coins=coins.filter(c=>!c.dead);
+  particles=particles.filter(p=>!p.dead);
+  floatingTexts=floatingTexts.filter(t=>!t.dead);
+  explosions=explosions.filter(ex=>!ex.dead);
+
+  shakeAmount*=0.88;
+  if(shakeAmount<0.05) shakeAmount=0;
+
+  updateUI();
+  renderBottomBar(); // Keep bar updated for affordability colors
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+
+  ctx.save();
+  if(shakeAmount>0){
+    ctx.translate((Math.random()-0.5)*shakeAmount*2,(Math.random()-0.5)*shakeAmount*2);
+  }
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.02)'; ctx.lineWidth=1;
+  const gs=50;
+  for(let x=0;x<W;x+=gs){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y=0;y<H;y+=gs){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Particles
+  for(const p of particles) p.draw(ctx);
+
+  // Explosions
+  for(const ex of explosions) ex.draw(ctx);
+
+  // Coins
+  for(const c of coins) c.draw(ctx);
+
+  // Enemies
+  for(const e of enemies) e.draw(ctx);
+
+  // Bullets
+  for(const b of bullets) b.draw(ctx);
+  for(const b of enemyBullets) b.draw(ctx);
+
+  // Player
+  ctx.save();
+  if(player.invuln>0&&Math.sin(player.flashTimer*20)>0) ctx.globalAlpha=0.4;
+  ctx.shadowColor='#4fc3f7'; ctx.shadowBlur=15;
+  const pg=ctx.createRadialGradient(player.x,player.y,player.radius*0.3,player.x,player.y,player.radius);
+  pg.addColorStop(0,'#4fc3f7'); pg.addColorStop(1,'#0288d1');
+  ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(player.x,player.y,player.radius,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2; ctx.stroke();
+
+  // Gun barrel
+  const angle=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+  const wx=getWeapon();
+  const tip={x:player.x+Math.cos(angle)*(player.radius+10),y:player.y+Math.sin(angle)*(player.radius+10)};
+  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(player.x+Math.cos(angle)*player.radius*0.5,player.y+Math.sin(angle)*player.radius*0.5);
+  ctx.lineTo(tip.x,tip.y); ctx.stroke();
+  ctx.fillStyle=wx.color; ctx.beginPath(); ctx.arc(tip.x,tip.y,4,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Floating texts
+  for(const t of floatingTexts) t.draw(ctx);
+
+  // Crosshair
+  ctx.save();
+  ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1;
+  const ch=10;
+  ctx.beginPath(); ctx.moveTo(mouse.x-ch,mouse.y); ctx.lineTo(mouse.x-3,mouse.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(mouse.x+3,mouse.y); ctx.lineTo(mouse.x+ch,mouse.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y-ch); ctx.lineTo(mouse.x,mouse.y-3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(mouse.x,mouse.y+3); ctx.lineTo(mouse.x,mouse.y+ch); ctx.stroke();
+  ctx.restore();
+
+  ctx.restore(); // shake
+
+  // Magnet range visual
+  if(player.stats.magnet>0){
+    ctx.save();
+    ctx.strokeStyle='rgba(255,215,0,0.1)'; ctx.setLineDash([5,15]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(player.x,player.y,player.magnetRange,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function gameLoop(ts) {
+  if(!lastTime) lastTime=ts;
+  const dt=(ts-lastTime)/1000;
+  lastTime=ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Init
+refreshStats();
+startWave();
+renderBottomBar();
+updateUI();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
