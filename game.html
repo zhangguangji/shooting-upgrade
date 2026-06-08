@@ -228,20 +228,99 @@ class FloatingText {
 
 // ==================== WEAPONS ====================
 const WEAPONS = [
-  { id:'pistol', name:'手枪', icon:'🔫', cost:0, damage:8, fireRate:2.5, bulletSpeed:500, bullets:1, spread:0.06, color:'#ffeb3b', size:3, pierce:0, explosive:false, desc:'基础武器' },
-  { id:'smg', name:'冲锋枪', icon:'💥', cost:50, damage:6, fireRate:6, bulletSpeed:550, bullets:1, spread:0.1, color:'#ff9800', size:2.5, pierce:0.1, explosive:false, desc:'高速连射' },
-  { id:'shotgun', name:'霰弹枪', icon:'🔥', cost:120, damage:5, fireRate:1.5, bulletSpeed:400, bullets:5, spread:0.35, color:'#f44336', size:2, pierce:0, explosive:false, desc:'扇形散射' },
-  { id:'rifle', name:'步枪', icon:'🎯', cost:300, damage:15, fireRate:4, bulletSpeed:700, bullets:1, spread:0.03, color:'#4fc3f7', size:3, pierce:0.5, explosive:false, desc:'精准穿透' },
-  { id:'laser', name:'激光枪', icon:'⚡', cost:600, damage:3, fireRate:20, bulletSpeed:900, bullets:1, spread:0.02, color:'#00e5ff', size:1.5, pierce:1, explosive:false, desc:'持续光束' },
-  { id:'rocket', name:'火箭炮', icon:'🚀', cost:1500, damage:40, fireRate:1, bulletSpeed:300, bullets:1, spread:0.05, color:'#ff6d00', size:6, pierce:0, explosive:true, explRadius:100, explDmg:30, desc:'范围爆炸' },
+  { id:'pistol', name:'手枪', icon:'🔫', cost:0, damage:8, fireRate:2.5, bulletSpeed:500, bullets:1, spread:0.06, color:'#ffeb3b', size:3, pierce:0, explosive:false, desc:'基础武器',
+    barrelLen:12, barrelW:3, muzzle:'#ffeb3b', shape:'round', trailLen:5, trailColor:'#ffd54f', recoil:1 },
+  { id:'smg', name:'冲锋枪', icon:'💥', cost:50, damage:6, fireRate:6, bulletSpeed:550, bullets:1, spread:0.1, color:'#ff9800', size:2.5, pierce:0.1, explosive:false, desc:'高速连射',
+    barrelLen:16, barrelW:4, muzzle:'#ff9800', shape:'round', trailLen:3, trailColor:'#ffb74d', recoil:3 },
+  { id:'shotgun', name:'霰弹枪', icon:'🔥', cost:120, damage:5, fireRate:1.5, bulletSpeed:400, bullets:5, spread:0.35, color:'#f44336', size:2.5, pierce:0, explosive:false, desc:'扇形散射',
+    barrelLen:20, barrelW:6, muzzle:'#ff5722', shape:'pellet', trailLen:4, trailColor:'#ef9a9a', recoil:6 },
+  { id:'rifle', name:'步枪', icon:'🎯', cost:300, damage:15, fireRate:4, bulletSpeed:700, bullets:1, spread:0.03, color:'#4fc3f7', size:3.5, pierce:0.5, explosive:false, desc:'精准穿透',
+    barrelLen:22, barrelW:3.5, muzzle:'#4fc3f7', shape:'spike', trailLen:10, trailColor:'#81d4fa', recoil:2 },
+  { id:'laser', name:'激光枪', icon:'⚡', cost:600, damage:3, fireRate:20, bulletSpeed:900, bullets:1, spread:0.02, color:'#00e5ff', size:2, pierce:1, explosive:false, desc:'持续光束',
+    barrelLen:14, barrelW:2, muzzle:'#00e5ff', shape:'beam', trailLen:20, trailColor:'#00e5ff', recoil:0.5 },
+  { id:'rocket', name:'火箭炮', icon:'🚀', cost:1500, damage:40, fireRate:1, bulletSpeed:300, bullets:1, spread:0.05, color:'#ff6d00', size:8, pierce:0, explosive:true, explRadius:100, explDmg:30, desc:'范围爆炸',
+    barrelLen:26, barrelW:8, muzzle:'#ff6d00', shape:'rocket', trailLen:15, trailColor:'#ffab40', recoil:10 },
 ];
 
 // ==================== BULLET ====================
 class Bullet {
-  constructor(x,y,angle,weapon){ this.x=x;this.y=y;this.vx=Math.cos(angle)*weapon.bulletSpeed;this.vy=Math.sin(angle)*weapon.bulletSpeed;this.damage=weapon.damage;this.color=weapon.color;this.size=weapon.size;this.pierce=Math.random()<weapon.pierce;this.explosive=weapon.explosive;this.explRadius=weapon.explRadius||0;this.explDmg=weapon.explDmg||0;this.trail=[];this.life=3; }
-  update(dt){ this.trail.push({x:this.x,y:this.y});if(this.trail.length>8)this.trail.shift();this.x+=this.vx*dt;this.y+=this.vy*dt;this.life-=dt; }
-  draw(ctx){ for(let i=0;i<this.trail.length;i++){ const t=this.trail[i];ctx.save();ctx.globalAlpha=(i/this.trail.length)*0.4;ctx.fillStyle=this.color;ctx.beginPath();ctx.arc(t.x,t.y,this.size*0.6+i*0.2,0,Math.PI*2);ctx.fill();ctx.restore(); } ctx.save();ctx.shadowColor=this.color;ctx.shadowBlur=6;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(this.x,this.y,this.size,0,Math.PI*2);ctx.fill();ctx.fillStyle=this.color;ctx.beginPath();ctx.arc(this.x,this.y,this.size*0.6,0,Math.PI*2);ctx.fill();ctx.restore(); }
-  get outOfBounds(){ return this.x<-60||this.x>W+60||this.y<-60||this.y>H+60||this.life<=0; }
+  constructor(x,y,angle,weapon){
+    this.x=x;this.y=y;this.vx=Math.cos(angle)*weapon.bulletSpeed;this.vy=Math.sin(angle)*weapon.bulletSpeed;
+    this.damage=weapon.damage;this.color=weapon.color;this.size=weapon.size;
+    this.pierce=Math.random()<weapon.pierce;this.explosive=weapon.explosive;
+    this.explRadius=weapon.explRadius||0;this.explDmg=weapon.explDmg||0;
+    this.trail=[];this.life=3;this.angle=angle;
+    this.shape=weapon.shape||'round';this.trailLen=weapon.trailLen||8;
+    this.trailColor=weapon.trailColor||weapon.color;
+  }
+  update(dt){
+    this.trail.push({x:this.x,y:this.y});
+    while(this.trail.length>this.trailLen)this.trail.shift();
+    this.x+=this.vx*dt;this.y+=this.vy*dt;this.life-=dt;
+  }
+  draw(ctx){
+    const w=this;
+    // Trail
+    for(let i=0;i<w.trail.length;i++){
+      const t=w.trail[i],alpha=(i/w.trail.length)*0.5;
+      ctx.save();ctx.globalAlpha=alpha;
+      if(w.shape==='beam'){
+        // Laser: fading line
+        ctx.strokeStyle=w.trailColor;ctx.lineWidth=w.size*(1+i/w.trail.length);ctx.lineCap='round';
+        if(i>0){ctx.beginPath();ctx.moveTo(w.trail[i-1].x,w.trail[i-1].y);ctx.lineTo(t.x,t.y);ctx.stroke();}
+      } else if(w.shape==='rocket'){
+        // Rocket: smoke trail
+        ctx.fillStyle=`rgba(255,150,50,${alpha})`;ctx.beginPath();ctx.arc(t.x,t.y,w.size*0.4,0,Math.PI*2);ctx.fill();
+      } else {
+        ctx.fillStyle=w.trailColor;ctx.beginPath();ctx.arc(t.x,t.y,w.size*0.6+i*0.3,0,Math.PI*2);ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    ctx.save();
+    if(w.shape==='beam'){
+      // Laser: bright glowing line from recent trail to current position
+      ctx.shadowColor=w.color;ctx.shadowBlur=10;
+      ctx.strokeStyle='#fff';ctx.lineWidth=w.size*1.5;ctx.lineCap='round';
+      ctx.beginPath();
+      if(w.trail.length>1)ctx.moveTo(w.trail[Math.max(0,w.trail.length-4)].x,w.trail[Math.max(0,w.trail.length-4)].y);
+      else ctx.moveTo(w.x-w.vx*0.05,w.y-w.vy*0.05);
+      ctx.lineTo(w.x,w.y);ctx.stroke();
+      ctx.shadowBlur=6;ctx.strokeStyle=w.color;ctx.lineWidth=w.size;
+      ctx.beginPath();if(w.trail.length>1)ctx.moveTo(w.trail[Math.max(0,w.trail.length-4)].x,w.trail[Math.max(0,w.trail.length-4)].y);else ctx.moveTo(w.x-w.vx*0.05,w.y-w.vy*0.05);ctx.lineTo(w.x,w.y);ctx.stroke();
+    } else if(w.shape==='rocket'){
+      // Rocket: large projectile with flame
+      ctx.shadowColor='#ff6d00';ctx.shadowBlur=15;
+      // Flame tail
+      ctx.fillStyle='#ff9800';ctx.beginPath();ctx.arc(w.x-Math.cos(w.angle)*6,w.y-Math.sin(w.angle)*6,5,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffeb3b';ctx.beginPath();ctx.arc(w.x-Math.cos(w.angle)*9,w.y-Math.sin(w.angle)*9,3,0,Math.PI*2);ctx.fill();
+      // Body
+      const rg=ctx.createRadialGradient(w.x,w.y,2,w.x,w.y,w.size);
+      rg.addColorStop(0,'#fff');rg.addColorStop(0.5,'#ff9800');rg.addColorStop(1,'#bf360c');
+      ctx.fillStyle=rg;ctx.beginPath();ctx.arc(w.x,w.y,w.size,0,Math.PI*2);ctx.fill();
+    } else if(w.shape==='spike'){
+      // Rifle: long thin spike bullet
+      ctx.shadowColor=w.color;ctx.shadowBlur=8;
+      ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(w.x-Math.cos(w.angle)*w.size*2,w.y-Math.sin(w.angle)*w.size*2);
+      ctx.lineTo(w.x+Math.cos(w.angle)*w.size,w.y+Math.sin(w.angle)*w.size);ctx.stroke();
+      ctx.strokeStyle=w.color;ctx.lineWidth=w.size*0.8;
+      ctx.beginPath();ctx.moveTo(w.x-Math.cos(w.angle)*w.size,w.y-Math.sin(w.angle)*w.size);
+      ctx.lineTo(w.x+Math.cos(w.angle)*w.size*0.8,w.y+Math.sin(w.angle)*w.size*0.8);ctx.stroke();
+    } else if(w.shape==='pellet'){
+      // Shotgun: small red pellets
+      ctx.shadowColor=w.color;ctx.shadowBlur=4;
+      ctx.fillStyle='#ffcdd2';ctx.beginPath();ctx.arc(w.x,w.y,w.size*0.8,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=w.color;ctx.beginPath();ctx.arc(w.x,w.y,w.size*0.5,0,Math.PI*2);ctx.fill();
+    } else {
+      // Default round bullet (pistol/SMG)
+      ctx.shadowColor=w.color;ctx.shadowBlur=6;
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(w.x,w.y,w.size,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=w.color;ctx.beginPath();ctx.arc(w.x,w.y,w.size*0.6,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+  get outOfBounds(){ return this.x<-80||this.x>W+80||this.y<-80||this.y>H+80||this.life<=0; }
 }
 class Explosion {
   constructor(x,y,radius,damage){ this.x=x;this.y=y;this.radius=radius;this.damage=damage;this.maxRadius=radius;this.currentRadius=0;this.life=0.35;this.maxLife=0.35;this.damaged=new Set(); }
@@ -568,8 +647,13 @@ function update(dt){
     while(player.cooldown<=0){ player.cooldown+=1/w.fireRate;
       for(let i=0;i<w.bullets;i++){ const a=angle+(i-(w.bullets-1)/2)*w.spread;
         bullets.push(new Bullet(player.x+Math.cos(a)*player.radius,player.y+Math.sin(a)*player.radius,a,
-          {bulletSpeed:w.bulletSpeed,damage:w.damage,color:w.color,size:w.size,pierce:w.pierce,explosive:w.explosive,explRadius:w.explRadius,explDmg:w.explDmg})); }
-      particles.push(new Particle(player.x+Math.cos(angle)*player.radius,player.y+Math.sin(angle)*player.radius,Math.cos(angle)*80,Math.sin(angle)*80,w.color,0.12,w.size));
+          {bulletSpeed:w.bulletSpeed,damage:w.damage,color:w.color,size:w.size,pierce:w.pierce,explosive:w.explosive,explRadius:w.explRadius,explDmg:w.explDmg,shape:w.shape,trailLen:w.trailLen,trailColor:w.trailColor})); }
+      // Muzzle flash - varies by weapon
+      const mfSize=w.shape==='rocket'?8:w.shape==='shotgun'?5:w.shape==='beam'?2:3;
+      for(let m=0;m<w.recoil;m++){
+        particles.push(new Particle(player.x+Math.cos(angle)*player.radius,player.y+Math.sin(angle)*player.radius,
+          Math.cos(angle)*(60+Math.random()*80),Math.sin(angle)*(60+Math.random()*80),w.muzzle||w.color,0.08+Math.random()*0.1,mfSize+Math.random()*2));
+      }
     }
   } else player.cooldown=Math.max(0,player.cooldown-dt);
 
@@ -635,10 +719,20 @@ function draw(){
   ctx.fillStyle=pg;ctx.beginPath();ctx.arc(player.x,player.y,player.radius,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.5)';ctx.lineWidth=2;ctx.stroke();
   const ang=Math.atan2(isMobile&&mobileShoot.active?mobileShoot.y-player.y:mouse.y-player.y,isMobile&&mobileShoot.active?mobileShoot.x-player.x:mouse.x-player.x);
-  const tip={x:player.x+Math.cos(ang)*(player.radius+10),y:player.y+Math.sin(ang)*(player.radius+10)};
-  ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.lineCap='round';
-  ctx.beginPath();ctx.moveTo(player.x+Math.cos(ang)*player.radius*0.5,player.y+Math.sin(ang)*player.radius*0.5);ctx.lineTo(tip.x,tip.y);ctx.stroke();
-  ctx.fillStyle=getWeapon().color;ctx.beginPath();ctx.arc(tip.x,tip.y,4,0,Math.PI*2);ctx.fill();ctx.restore();
+  const wdata=getWeapon();
+  // Gun barrel - reflects current weapon
+  const barrelBase=player.radius*0.3;const barrelTip=player.radius+wdata.barrelLen;
+  const tip={x:player.x+Math.cos(ang)*barrelTip,y:player.y+Math.sin(ang)*barrelTip};
+  ctx.strokeStyle=wdata.color;ctx.lineWidth=wdata.barrelW;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(player.x+Math.cos(ang)*barrelBase,player.y+Math.sin(ang)*barrelBase);ctx.lineTo(tip.x,tip.y);ctx.stroke();
+  // Barrel outline
+  ctx.strokeStyle='rgba(255,255,255,0.6)';ctx.lineWidth=wdata.barrelW*0.3;
+  ctx.beginPath();ctx.moveTo(player.x+Math.cos(ang)*barrelBase,player.y+Math.sin(ang)*barrelBase);ctx.lineTo(tip.x,tip.y);ctx.stroke();
+  // Muzzle tip
+  const muzzleColor=wdata.muzzle||wdata.color;
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(tip.x,tip.y,wdata.barrelW*0.7,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=muzzleColor;ctx.beginPath();ctx.arc(tip.x,tip.y,wdata.barrelW*0.45,0,Math.PI*2);ctx.fill();
+  ctx.restore();
 
   for(const t of floatingTexts)t.draw(ctx);
 
