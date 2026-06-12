@@ -352,6 +352,10 @@ let gold=0, kills=0, wave=1, totalGold=0, gameOver=false;
 let enemiesRemaining=0, waveTotal=0, spawnTimer=0, spawnInterval=1.2;
 let bullets=[], enemyBullets=[], enemies=[], coins=[], particles=[], floatingTexts=[], explosions=[];
 let lastTime=0, shakeAmount=0, statsPanelOpen=false, saveTimer=0;
+// New: dash, combo
+let dashCooldown=0, dashTimer=0, isDashing=false, dashDir={x:0,y:0};
+let comboKills=0, comboTimer=0, maxCombo=0;
+const MAX_PARTICLES=200, MAX_BULLETS=300;
 
 function spawnEnemy(){
   let type='normal';const r=Math.random();
@@ -363,14 +367,22 @@ function spawnEnemy(){
 
 function killEnemy(e){
   kills++;
-  for(let i=0;i<12;i++){ const a=Math.random()*Math.PI*2,s=50+Math.random()*150;particles.push(new Particle(e.x,e.y,Math.cos(a)*s,Math.sin(a)*s,e.c1,0.5,3+Math.random()*3)); }
-  coins.push(new Coin(e.x,e.y,e.gold));
-  floatingTexts.push(new FloatingText(e.x,e.y-15,'+'+e.gold+'💰','#ffd700'));
+  // Combo system
+  comboKills++; comboTimer=1.5;
+  if(comboKills>maxCombo) maxCombo=comboKills;
+  const bonusGold = comboKills>=10 ? Math.floor(e.gold*(comboKills/10)) : 0;
+  
+  // Death particles (limited)
+  const pCount = Math.min(12, MAX_PARTICLES-particles.length);
+  for(let i=0;i<pCount;i++){ const a=Math.random()*Math.PI*2,s=50+Math.random()*150;particles.push(new Particle(e.x,e.y,Math.cos(a)*s,Math.sin(a)*s,e.c1,0.5,3+Math.random()*3)); }
+  coins.push(new Coin(e.x,e.y,e.gold+bonusGold));
+  const comboText = comboKills>=5 ? ` 🔥${comboKills}连杀!` : '';
+  floatingTexts.push(new FloatingText(e.x,e.y-15,'+'+e.gold+'💰'+comboText,'#ffd700'));
   if(e.type==='boss')shakeAmount=Math.max(shakeAmount,8);
 }
 
 function takeDamage(dmg){
-  if(player.invuln>0)return;
+  if(player.invuln>0||isDashing)return; // Invincible while dashing
   player.hp-=dmg;player.invuln=0.4;shakeAmount=Math.max(shakeAmount,4);
   floatingTexts.push(new FloatingText(player.x,player.y-20,'-'+dmg,'#ff4444',16));
   if(player.hp<=0){player.hp=0;endGame();}
@@ -384,7 +396,7 @@ function endGame(){
   document.getElementById('goKills').textContent='🏆 击杀: '+kills;
   document.getElementById('goGold').textContent='💰 累计金币: '+totalGold;
   document.getElementById('goWave').textContent='🌊 存活波数: '+wave;
-  document.getElementById('goWeapon').textContent='🔫 最终武器: '+w.name;
+  document.getElementById('goWeapon').textContent='🔫 最终武器: '+w.name+' | 🔥最高连杀: '+maxCombo;
 }
 
 function showMsg(text){ msgBox.textContent=text;msgBox.style.opacity='1';setTimeout(()=>{msgBox.style.opacity='0';},1500); }
@@ -527,7 +539,9 @@ document.addEventListener('click', function(e){
 
 function updateUI(){
   const w=getWeapon();
-  topBar.innerHTML=`<span class="stat">❤️ ${Math.ceil(player.hp)}/${player.maxHp}</span><span class="stat gold-text">💰 ${gold}</span><span class="stat">🌊 第${wave}波</span><span class="stat">💀 ${kills}</span><span class="stat">${w.icon} ${w.name}</span>`;
+  const comboStr = comboKills>=3 ? ` 🔥${comboKills}` : '';
+  const dashStr = dashCooldown>0 ? ` ⚡${dashCooldown.toFixed(1)}s` : (isDashing?' ⚡突进!':' ⚡就绪');
+  topBar.innerHTML=`<span class="stat">❤️ ${Math.ceil(player.hp)}/${player.maxHp}</span><span class="stat gold-text">💰 ${gold}${comboStr}</span><span class="stat">🌊 第${wave}波</span><span class="stat">💀 ${kills}(最高${maxCombo}连)</span><span class="stat">${w.icon} ${w.name}</span>`;
   if(statsPanelOpen){
     topBar.innerHTML+=`<div style="position:absolute;top:40px;left:8px;right:8px;background:rgba(10,10,30,0.95);border:1px solid #4fc3f7;border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto;">
       ${['hp','speed','magnet','regen'].map(s=>{
@@ -561,6 +575,7 @@ function restartGame(){
   gold=0;kills=0;wave=1;totalGold=0;
   bullets=[];enemyBullets=[];enemies=[];coins=[];particles=[];floatingTexts=[];explosions=[];
   gameOver=false;shakeAmount=0;statsPanelOpen=false;
+  dashCooldown=0;dashTimer=0;isDashing=false;comboKills=0;comboTimer=0;maxCombo=0;
   goDiv.style.display='none';
   startWave();renderBottomBar();updateUI();
 }
@@ -592,7 +607,29 @@ function update(dt){
   if(!currentUser||gameOver)return;
   dt=Math.min(dt,0.1);
 
-  // Movement
+  // Dash
+  dashCooldown=Math.max(0,dashCooldown-dt);
+  if(isDashing){
+    dashTimer-=dt;
+    player.x+=dashDir.x*600*dt;player.y+=dashDir.y*600*dt;
+    if(dashTimer<=0){ isDashing=false; player.invuln=0.1; }
+  }
+  if((keys[' ']||keys['shift'])&&dashCooldown<=0&&!isDashing){
+    dashCooldown=3; dashTimer=0.15;
+    let ddx=0,ddy=0;
+    if(keys['w']||keys['arrowup'])ddy-=1;
+    if(keys['s']||keys['arrowdown'])ddy+=1;
+    if(keys['a']||keys['arrowleft'])ddx-=1;
+    if(keys['d']||keys['arrowright'])ddx+=1;
+    if(ddx===0&&ddy===0){ const ang=Math.atan2(mouse.y-player.y,mouse.x-player.x); ddx=Math.cos(ang); ddy=Math.sin(ang); }
+    else { const l=Math.sqrt(ddx*ddx+ddy*ddy); ddx/=l; ddy/=l; }
+    dashDir={x:ddx,y:ddy}; isDashing=true;
+    particles.push(new Particle(player.x,player.y,0,0,'#4fc3f7',0.3,8));
+    keys[' ']=false;keys['shift']=false;
+  }
+
+  // Movement (slower while dashing, dash handles movement)
+  if(!isDashing){
   let dx=0,dy=0;
   if(keys['w']||keys['arrowup'])dy-=1;
   if(keys['s']||keys['arrowdown'])dy+=1;
@@ -601,9 +638,14 @@ function update(dt){
   if(isMobile&&mobileMove.active){ const mdx=mobileMove.x-player.x,mdy=mobileMove.y-player.y,mlen=Math.sqrt(mdx*mdx+mdy*mdy);if(mlen>15){dx=mdx/mlen;dy=mdy/mlen;} }
   if(dx!==0||dy!==0){const l=Math.sqrt(dx*dx+dy*dy);dx/=l;dy/=l;}
   player.x+=dx*player.speed*dt;player.y+=dy*player.speed*dt;
+  }
   player.x=Math.max(player.radius,Math.min(W-player.radius,player.x));
   player.y=Math.max(player.radius,Math.min(H-player.radius,player.y));
   player.invuln=Math.max(0,player.invuln-dt);player.flashTimer+=dt;
+
+  // Combo decay
+  comboTimer-=dt;
+  if(comboTimer<=0){ comboKills=0; }
 
   if(player.stats.regen>0){ player.regenTimer-=dt;if(player.regenTimer<=0){player.regenTimer=3;player.hp=Math.min(player.maxHp,player.hp+player.stats.regen);} }
 
@@ -615,15 +657,18 @@ function update(dt){
   const w=getWeapon();
   if(shooting){ player.cooldown-=dt;
     while(player.cooldown<=0){ player.cooldown+=1/w.fireRate;
+      if(bullets.length<MAX_BULLETS){
       for(let i=0;i<w.bullets;i++){ const a=angle+(i-(w.bullets-1)/2)*w.spread;
         bullets.push(new Bullet(player.x+Math.cos(a)*player.radius,player.y+Math.sin(a)*player.radius,a,
           {bulletSpeed:w.bulletSpeed,damage:w.damage,color:w.color,size:w.size,pierce:w.pierce,explosive:w.explosive,explRadius:w.explRadius,explDmg:w.explDmg,shape:w.shape,trailLen:w.trailLen,trailColor:w.trailColor})); }
-      // Muzzle flash - varies by weapon
+      }
+      // Muzzle flash (limited)
+      if(particles.length<MAX_PARTICLES){
       const mfSize=w.shape==='rocket'?8:w.shape==='shotgun'?5:w.shape==='beam'?2:3;
-      for(let m=0;m<w.recoil;m++){
+      for(let m=0;m<Math.min(w.recoil,MAX_PARTICLES-particles.length);m++){
         particles.push(new Particle(player.x+Math.cos(angle)*player.radius,player.y+Math.sin(angle)*player.radius,
           Math.cos(angle)*(60+Math.random()*80),Math.sin(angle)*(60+Math.random()*80),w.muzzle||w.color,0.08+Math.random()*0.1,mfSize+Math.random()*2));
-      }
+      }}
     }
   } else player.cooldown=Math.max(0,player.cooldown-dt);
 
@@ -798,6 +843,28 @@ function draw(){
   ctx.restore();
 
   for(const t of floatingTexts)t.draw(ctx);
+
+  // Edge indicators for off-screen enemies
+  for(const e of enemies){
+    if(e.x>0&&e.x<W&&e.y>0&&e.y<H) continue;
+    let ix=e.x, iy=e.y;
+    ix=Math.max(15,Math.min(W-15,ix));iy=Math.max(50,Math.min(H-60,iy));
+    ctx.save();ctx.globalAlpha=0.6;
+    ctx.fillStyle=e.c1;ctx.beginPath();ctx.arc(ix,iy,6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(ix,iy,3,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+
+  // Dash cooldown indicator
+  if(dashCooldown>0){
+    ctx.save();ctx.globalAlpha=0.5;ctx.fillStyle='#4fc3f7';ctx.font='bold 12px sans-serif';ctx.textAlign='center';
+    ctx.fillText(`⚡ ${dashCooldown.toFixed(1)}s`,player.x,player.y-player.radius-20);ctx.restore();
+  }
+  // Combo display
+  if(comboKills>=3){
+    ctx.save();ctx.globalAlpha=Math.min(1,comboTimer);ctx.fillStyle='#ff9800';ctx.font='bold 18px sans-serif';ctx.textAlign='center';
+    ctx.fillText(`🔥 ${comboKills}连杀!`,player.x,player.y-player.radius-35);ctx.restore();
+  }
 
   if(!isMobile){ ctx.save();ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1;const c=10;
     ctx.beginPath();ctx.moveTo(mouse.x-c,mouse.y);ctx.lineTo(mouse.x-3,mouse.y);ctx.stroke();ctx.beginPath();ctx.moveTo(mouse.x+3,mouse.y);ctx.lineTo(mouse.x+c,mouse.y);ctx.stroke();
